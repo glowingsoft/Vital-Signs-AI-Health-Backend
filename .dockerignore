@@ -1,0 +1,12 @@
+# Files Docker does not copy into the image (secrets, local tools, tests, docs).
+.env
+.venv/
+.git/
+__pycache__/
+.pytest_cache/
+tests/
+asserts/
+db/
+docker/
+*.md
+failed_enqueue.jsonl*

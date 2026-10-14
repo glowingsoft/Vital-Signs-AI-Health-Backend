@@ -1,0 +1,141 @@
+# The whole local stack in Docker: API + worker + Postgres + Redis.
+# Start: docker compose up --build    Values (DB_NAME, passwords, ...) come from .env in this folder.
+#
+# Ports on your Mac: API 8000, Postgres 5433, Redis 6380. Postgres and Redis use different ports from
+# the brew versions (5432 / 6379), so both setups can run side by side. Their data is separate.
+#
+# Optional: "docker compose --profile split up --build" also starts the production layout,
+# one container per part (orchestrator + 3 motors), all from the same image.
+
+# Settings shared by every container built from our image ("x-" blocks are reusable pieces).
+x-app: &app
+  build: .
+  image: vitalsigns-ai
+  restart: unless-stopped
+  volumes:
+    - fallback:/data  # failed_enqueue.jsonl lives here, shared by the API and the worker
+  depends_on:
+    postgres:
+      condition: service_healthy  # wait until Postgres is set up and accepting connections
+    redis:
+      condition: service_healthy
+
+# Environment shared by every container built from our image.
+# Inside Docker, containers reach each other by service name ("postgres", "redis"), not localhost.
+x-app-env: &app-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: ${DB_NAME}
+  DB_APP_USER: ${DB_APP_USER}
+  DB_APP_PASSWORD: ${DB_APP_PASSWORD}
+  REDIS_URL: redis://redis:6379/0
+  MAX_JOB_ATTEMPTS: ${MAX_JOB_ATTEMPTS:-5}
+  FAILED_ENQUEUE_FILE: /data/failed_enqueue.jsonl
+
+services:
+  # ---------- Development layout (default) ----------
+
+  api:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICE: all  # orchestrator + all motors in one container
+    ports:
+      - "127.0.0.1:8000:8000"  # 127.0.0.1 = reachable only from your Mac, not your network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker"]
+    environment:
+      <<: *app-env
+    stop_grace_period: 15s  # time to finish the current job after "docker compose stop" (SIGTERM)
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      # Admin password. Set DB_ADMIN_PASSWORD in .env to use a separate one; otherwise the app password is reused.
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:-${DB_APP_PASSWORD}}
+      # Read by docker/postgres-init.sh on the first start.
+      DB_NAME: ${DB_NAME}
+      DB_APP_USER: ${DB_APP_USER}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
+      DB_NODE_USER: ${DB_NODE_USER}
+      DB_NODE_PASSWORD: ${DB_NODE_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data  # the database files; kept when containers are removed
+      - ./db/sql:/sql:ro
+      - ./docker/postgres-init.sh:/docker-entrypoint-initdb.d/init.sh:ro  # runs only on an empty volume
+    ports:
+      - "127.0.0.1:5433:5432"  # TablePlus: localhost, port 5433
+    healthcheck:
+      # -h 127.0.0.1 = check over TCP. During first-time setup Postgres only listens on a local socket,
+      # so this stays "unhealthy" until the init script has finished.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d $${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]  # persistence: queued jobs survive a restart
+    volumes:
+      - redisdata:/data
+    ports:
+      - "127.0.0.1:6380:6379"  # redis-cli -p 6380
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------- Production layout (only with --profile split) ----------
+  # Same image, one part per container. Only the orchestrator gets a port; the motors are
+  # reachable only inside Docker's network, never from outside.
+
+  orchestrator:
+    <<: *app
+    profiles: ["split"]
+    environment:
+      <<: *app-env
+      SERVICE: orchestrator
+      TRIAGE_URL: http://triage:8000
+      VISUAL_URL: http://visual:8000
+      VITALS_URL: http://vitals:8000
+    ports:
+      - "127.0.0.1:8010:8000"
+
+  triage:
+    <<: *app
+    profiles: ["split"]
+    environment:
+      <<: *app-env
+      SERVICE: triage
+
+  visual:
+    <<: *app
+    profiles: ["split"]
+    environment:
+      <<: *app-env
+      SERVICE: visual
+
+  vitals:
+    <<: *app
+    profiles: ["split"]
+    environment:
+      <<: *app-env
+      SERVICE: vitals
+
+# Named volumes = storage managed by Docker that survives "docker compose down".
+# "docker compose down -v" deletes them (all Docker database and queue data).
+volumes:
+  pgdata:
+  redisdata:
+  fallback:

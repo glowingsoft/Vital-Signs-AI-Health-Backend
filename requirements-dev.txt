@@ -1,0 +1,3 @@
+# Extra packages for running the tests (not needed in production).
+-r requirements.txt
+pytest

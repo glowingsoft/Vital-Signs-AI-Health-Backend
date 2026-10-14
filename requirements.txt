@@ -1,0 +1,9 @@
+# Exact versions, so the Mac venv and the Docker image always run the same code.
+# To upgrade: change a version here, run the tests, then rebuild the image.
+fastapi==0.128.8
+uvicorn==0.39.0
+httpx==0.28.1
+pydantic==2.13.5
+redis==7.0.1
+sqlalchemy[asyncio]==2.0.54
+asyncpg==0.32.0
