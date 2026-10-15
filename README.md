@@ -617,7 +617,10 @@ gantt
 │       ├── triage/         # Motor 1: conversational triage
 │       ├── visual/         # Motor 2: Stage 2 image analysis
 │       └── vitals/         # Motor 3: explanations of on-device readings
-├── alembic/                # Migrations for the "clinical" schema (the only way to change it)
+├── collection/             # SQLAlchemy models, one file per table (what Alembic compares with the database)
+├── alembic/                # Migrations for the "ai" schema (the only way to change it)
+├── db/bootstrap.sql        # Creates the logins and the database (the one step Alembic cannot do)
+├── old_sql/                # Archive of the old hand-written SQL scripts (not used)
 ├── tests/                  # Contract, motor and latency tests (proposed)
 ├── docs/                   # Source documents, schema diagram and guide
 ├── Dockerfile              # One image for all four services
@@ -650,7 +653,11 @@ app/worker/handlers.py        one transaction per job
 app/worker/repository.py      the INSERT statements, one function per table
 Dockerfile                    one image for the API (any SERVICE) and the worker
 docker-compose.yml            local stack: api + worker + postgres + redis (+ 4-container "split" profile)
-docker/postgres-init.sh       sets up the Docker Postgres with the same db/sql files as setup_db.sh
+docker/postgres-init.sh       creates the Docker Postgres logins and database with db/bootstrap.sql
+collection/                   SQLAlchemy models, one file per table, all loaded by collection/__init__.py
+alembic/, alembic.ini         Alembic migrations; alembic/env.py reads DATABASE_URL or the DB_* values
+db/bootstrap.sql              logins + database (run as the Postgres admin, before alembic upgrade head)
+old_sql/                      the old hand-written SQL scripts, kept for reference only
 tests/                        test_assess, test_build_job, test_queue, test_worker (real DB; skipped if it is down)
 ```
 
@@ -776,7 +783,7 @@ redis-cli CONFIG SET appendonly yes
 redis-cli CONFIG REWRITE
 ```
 
-Postgres must be running and set up with `bash setup_db.sh`.
+Postgres must be running and set up with `bash setup_db.sh` (logins and database, then `alembic upgrade head`).
 
 **2. Run the API and the worker in two terminals** (both from the project folder, with `.venv` active):
 
@@ -820,22 +827,62 @@ The worker terminal prints `stream=jobs:save_assessment job_id=... result=saved 
 - **Stopping.** Ctrl+C or SIGTERM stops the worker after the job in progress. Jobs it had read but not started are picked up again later.
 - **Test rows stay.** `ai.assessments` and `ai.audit_log` cannot be deleted (append-only triggers). So `tests/test_worker.py` leaves rows whose `user_id` starts with `test_worker_`.
 
+### Database models and migrations
+
+The tables are defined as SQLAlchemy models in `collection/` (one file per table) and changed only through **Alembic migrations** in `alembic/versions/`. Never change the schema by hand, from Node, or by editing `old_sql/`.
+
+Run these from the project folder with `.venv` active. Alembic connects with `DATABASE_URL` if it is set, otherwise with the `DB_*` values from `.env`. Docker's Postgres is on port 5433, so for it use `DATABASE_URL=postgresql://vs_ai:<DB_APP_PASSWORD>@localhost:5433/vitalsigns alembic …` (in Docker the `migrate` container runs `alembic upgrade head` on every start).
+
+**Add a new table**
+
+1. Create `collection/<model_name>.py` with one model (copy an existing file, e.g. `collection/consent.py`). Put CHECK constraints in `__table_args__`, not on the column, so autogenerate picks them up.
+2. Import the class in `collection/__init__.py` (and add it to `__all__`). A model that is not imported there is invisible to Alembic.
+
+**Create a migration** (compares the models with the database and writes the difference):
+
+```bash
+alembic revision --autogenerate -m "add xyz table"
+```
+
+Always open the new file in `alembic/versions/` and check it. Autogenerate does **not** detect changed CHECK constraints, triggers, functions or grants; write those yourself with `op.execute(...)`.
+
+**Apply it:**
+
+```bash
+alembic upgrade head
+```
+
+**Undo the last migration:**
+
+```bash
+alembic downgrade -1
+```
+
+Useful too: `alembic current` (version of this database), `alembic history` (all migrations), `alembic check` (fails if the models and the database differ).
+
+The first migration (`initial schema`) recreates the original schema exactly, including the append-only triggers, the `disc_v1` disclaimer and the Node grants. Databases that already existed were marked as up to date with `alembic stamp head` instead of running it.
+
 ### Run with Docker
 
 Docker runs the same stack with one command, the same way on every machine. Open **Docker Desktop** first.
 
 ```text
  docker compose up --build
- ├── api        SERVICE=all, uvicorn          → http://localhost:8000  (/docs, /health)
- ├── worker     python -m app.worker
- ├── postgres   Postgres 16, set up on first start from db/sql/   → localhost:5433
- └── redis      Redis 7.4 with appendonly on                      → localhost:6380
-     (one image for api + worker; data kept in Docker volumes)
+ ├── gateway       nginx: /ai/* and /health → orchestrator, 404 otherwise   → http://localhost (port 80)
+ ├── orchestrator  SERVICE=orchestrator  (no host port)
+ ├── triage        SERVICE=triage        (no host port)
+ ├── visual        SERVICE=visual        (no host port)
+ ├── vitals        SERVICE=vitals        (no host port)
+ ├── worker        python -m app.worker
+ ├── migrate       alembic upgrade head, then exits (everything else waits for it)
+ ├── postgres      Postgres 16, logins + database from db/bootstrap.sql      → localhost:5433
+ └── redis         Redis 7.4 with appendonly on                             → localhost:6380
+     (one image for orchestrator + motors + worker; data kept in Docker volumes)
 ```
 
-The API, the worker and the motors are all built from **one image** (`Dockerfile`). The `command` and `SERVICE` decide what each container runs. Values such as `DB_NAME` and the passwords come from your `.env`. Inside Docker, containers reach each other by name (`postgres`, `redis`), so `DB_HOST` and `REDIS_URL` are set in `docker-compose.yml`.
+The orchestrator, the motors and the worker are all built from **one image** (`Dockerfile`). The `command` and `SERVICE` decide what each container runs. Values such as `DB_NAME` and the passwords come from your `.env`. Inside Docker, containers reach each other by name (`postgres`, `redis`), so `DB_HOST` and `REDIS_URL` are set in `docker-compose.yml`.
 
-**Ports.** Docker's Postgres and Redis use **5433** and **6380**, so they don't clash with the brew versions on 5432 and 6379. The two setups have **separate data**. The API uses 8000, so stop a local `uvicorn` before starting Docker.
+**Ports.** Docker's Postgres and Redis use **5433** and **6380**, so they don't clash with the brew versions on 5432 and 6379. The two setups have **separate data**. The API is reachable only through the gateway on port **80**, so a local `uvicorn` on 8000 can run at the same time.
 
 **Everyday commands:**
 
@@ -843,7 +890,7 @@ The API, the worker and the motors are all built from **one image** (`Dockerfile
 docker compose up --build -d          # build and start in the background
 docker compose ps                     # what is running, and health
 docker compose logs -f worker         # follow the worker log (Ctrl+C stops following, not the worker)
-docker compose logs -f api
+docker compose logs -f orchestrator gateway
 docker compose restart worker         # e.g. after a code change: rebuild with "up --build -d"
 docker compose stop                   # stop everything (data kept)
 docker compose down                   # stop and remove containers (data kept in volumes)
@@ -860,19 +907,33 @@ docker compose exec postgres sh -c 'psql -U "$DB_APP_USER" -d "$DB_NAME" -c "SEL
 
 To use TablePlus, connect to host `localhost`, port **5433**, with the `DB_*` user, password and database from `.env`.
 
-**Postgres setup in Docker.** The first time the `postgres` container starts with an empty volume, `docker/postgres-init.sh` runs `db/sql/01_roles_and_database.sql` and `02_schema_and_tables.sql`, the same files `setup_db.sh` uses. It never runs again on later starts. To rebuild the database from scratch, run `docker compose down -v`. The Postgres admin password is `DB_ADMIN_PASSWORD` from `.env`, or `DB_APP_PASSWORD` when that key is empty.
+**Postgres setup in Docker.** The first time the `postgres` container starts with an empty volume, `docker/postgres-init.sh` runs `db/bootstrap.sql` (logins and database), the same file `setup_db.sh` uses. It never runs again on later starts. The `migrate` container then creates or updates the tables with `alembic upgrade head`, on every `docker compose up`. To rebuild the database from scratch, run `docker compose down -v`. The Postgres admin password is `DB_ADMIN_PASSWORD` from `.env`, or `DB_APP_PASSWORD` when that key is empty.
 
-**Production layout (one part per container).** This is the layout the project will use on the server:
+**API gateway (`gateway/nginx.conf`).** Docker runs the production layout: one part per container, with nginx in front. The orchestrator calls the motors over Docker's network (`TRIAGE_URL=http://triage:8000`, …, set in `docker-compose.yml`). The gateway:
+
+- sends `/ai/*` and `/health` to the orchestrator and returns **404 for every other path**, so `/motor/*` and `/docs` are not reachable from outside (use a local `uvicorn` for `/docs`);
+- serves its own 404 from `gateway/src/`: a designed page for browsers, JSON (`{"detail": "Not Found", "request_id": ...}`) for apps and curl;
+- rate limits each client IP to 10 requests/second (burst 20) and returns **429** above that;
+- accepts bodies up to 10 MB, passes `X-Real-IP` / `X-Forwarded-For`, and waits 5 s for the orchestrator (motor timeout 2.5 s);
+- has a commented placeholder in `location /ai/` where the JWT check will go.
 
 ```bash
-docker compose --profile split up --build -d
+curl http://localhost/health                                   # 200, through the gateway
+curl -X POST http://localhost/ai/assess -H 'Content-Type: application/json' \
+     -d '{"user_id": "u_demo", "symptoms": "cough"}'           # 200, the assessment
+curl -i -X POST http://localhost/motor/triage/analyze          # 404, motors are hidden
 ```
 
-It also starts `orchestrator` (http://localhost:8010) and the `triage`, `visual` and `vitals` motors, each in its own container, all from the same image. The orchestrator calls the motors over Docker's network (`TRIAGE_URL=http://triage:8000`, …). The motors have **no published port**, so they can't be reached from outside. Stop them with `docker compose --profile split stop`.
+**Swagger (`/docs`) in Docker, for testing only.** `docker-compose.dev.yml` mounts `gateway/dev-docs.conf` into Nginx, which adds `/docs` and `/openapi.json` to the gateway routes:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d   # http://localhost/docs
+docker compose up -d                                                    # back to normal: /docs → 404
+```
 
 **Versions.** `requirements.txt` pins exact versions, so the Mac `.venv` and the image run the same code. After changing a version, run `pip install -r requirements-dev.txt`, `pytest`, and `docker compose up --build -d`.
 
-> Later milestones add Alembic migrations, the API gateway, JWT auth and Bedrock. Never change the database schema by hand or from Node.
+> Later milestones add JWT auth (at the gateway) and Bedrock. Never change the database schema by hand or from Node: use an Alembic migration.
 
 ---
 
@@ -886,7 +947,8 @@ Never commit real values. Variables marked *proposed* will be confirmed when the
 | `TRIAGE_URL` | orchestrator | Internal URL of the triage motor (default `http://localhost:8000`) |
 | `VISUAL_URL` | orchestrator | Internal URL of the visual motor |
 | `VITALS_URL` | orchestrator | Internal URL of the vitals motor |
-| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_APP_USER`, `DB_APP_PASSWORD` | API, worker | Postgres connection for the AI login (written to `.env` by `setup_db.sh`). In Docker, `DB_HOST`/`DB_PORT` are set by `docker-compose.yml`. |
+| `DATABASE_URL` | Alembic | Optional. Full Postgres URL for migrations, e.g. `postgresql://vs_ai:…@localhost:5433/vitalsigns`. When empty, Alembic uses the `DB_*` values below. |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_APP_USER`, `DB_APP_PASSWORD` | API, worker, Alembic | Postgres connection for the AI login (written to `.env` by `setup_db.sh`). In Docker, `DB_HOST`/`DB_PORT` are set by `docker-compose.yml`. |
 | `DB_ADMIN_PASSWORD` | Docker postgres | Admin password of the Docker Postgres (optional; defaults to `DB_APP_PASSWORD`) |
 | `REDIS_URL` | API, worker | Redis for the job queue (default `redis://localhost:6379/0`) |
 | `MAX_JOB_ATTEMPTS` | worker | Failed attempts before a job moves to `jobs:dead` (default 5) |

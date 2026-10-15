@@ -13,11 +13,16 @@ from app.orchestrator.routes import router as orchestrator_router
 from app.shared import db, redis_client
 
 
+# runs at start up and shutdown of the FastAPI app, to open and close connections to Redis and Postgres.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ── PART 1: STARTUP ──  (runs once, before any request is served)
+
     # Code before "yield" runs at startup, code after it at shutdown.
     # Redis and the database connect lazily (on first use), so there is nothing to open here.
     yield
+    # ── PART 2: SHUTDOWN ──  (runs once, after the server is told to stop)
+
     await redis_client.close_redis()
     await db.close_db()
 

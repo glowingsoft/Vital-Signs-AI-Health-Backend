@@ -7,6 +7,8 @@ __pycache__/
 tests/
 asserts/
 db/
+old_sql/
 docker/
+gateway/
 *.md
 failed_enqueue.jsonl*

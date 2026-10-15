@@ -1,11 +1,10 @@
-# The whole local stack in Docker: API + worker + Postgres + Redis.
+# The whole local stack in Docker: gateway + orchestrator + 3 motors + worker + Postgres + Redis.
+# Before the API and worker start, the one-off "migrate" container runs "alembic upgrade head".
 # Start: docker compose up --build    Values (DB_NAME, passwords, ...) come from .env in this folder.
 #
-# Ports on your Mac: API 8000, Postgres 5433, Redis 6380. Postgres and Redis use different ports from
-# the brew versions (5432 / 6379), so both setups can run side by side. Their data is separate.
-#
-# Optional: "docker compose --profile split up --build" also starts the production layout,
-# one container per part (orchestrator + 3 motors), all from the same image.
+# Ports on your Mac: gateway 80 (the only way into the API), Postgres 5433, Redis 6380.
+# Postgres and Redis use different ports from the brew versions (5432 / 6379), so both setups can run
+# side by side. Their data is separate. The orchestrator and motors have no published port.
 
 # Settings shared by every container built from our image ("x-" blocks are reusable pieces).
 x-app: &app
@@ -15,8 +14,8 @@ x-app: &app
   volumes:
     - fallback:/data  # failed_enqueue.jsonl lives here, shared by the API and the worker
   depends_on:
-    postgres:
-      condition: service_healthy  # wait until Postgres is set up and accepting connections
+    migrate:
+      condition: service_completed_successfully  # the database schema is up to date
     redis:
       condition: service_healthy
 
@@ -32,21 +31,84 @@ x-app-env: &app-env
   MAX_JOB_ATTEMPTS: ${MAX_JOB_ATTEMPTS:-5}
   FAILED_ENQUEUE_FILE: /data/failed_enqueue.jsonl
 
-services:
-  # ---------- Development layout (default) ----------
+# Health check for every API container (orchestrator and motors all have GET /health).
+x-api-healthcheck: &api-healthcheck
+  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+  interval: 10s
+  timeout: 3s
+  retries: 5
 
-  api:
+services:
+  # ---------- Gateway: the only entry point from outside ----------
+  # Routes /ai/* and /health to the orchestrator, 404 for everything else, rate limit per IP.
+
+  gateway:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./gateway/src:/usr/share/nginx/errors:ro  # custom 404 pages (HTML for browsers, JSON for apps)
+    ports:
+      - "127.0.0.1:80:80"  # 127.0.0.1 = reachable only from your Mac, not your network
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+
+  # ---------- API: same image, one part per container ----------
+  # "expose" = reachable by other containers on Docker's network, never from your Mac.
+
+  orchestrator:
     <<: *app
     environment:
       <<: *app-env
-      SERVICE: all  # orchestrator + all motors in one container
-    ports:
-      - "127.0.0.1:8000:8000"  # 127.0.0.1 = reachable only from your Mac, not your network
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
+      SERVICE: orchestrator
+      # The motors' addresses on Docker's network (service name + container port).
+      TRIAGE_URL: http://triage:8000
+      VISUAL_URL: http://visual:8000
+      VITALS_URL: http://vitals:8000
+    expose:
+      - "8000"
+    healthcheck: *api-healthcheck
+
+  triage:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICE: triage
+    expose:
+      - "8000"
+    healthcheck: *api-healthcheck
+
+  visual:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICE: visual
+    expose:
+      - "8000"
+    healthcheck: *api-healthcheck
+
+  vitals:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICE: vitals
+    expose:
+      - "8000"
+    healthcheck: *api-healthcheck
+
+  # Runs "alembic upgrade head" once and exits. Every other app container waits for it to succeed.
+  migrate:
+    image: vitalsigns-ai
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      <<: *app-env
+      DB_NODE_USER: ${DB_NODE_USER}  # the first migration grants the Node login read access
+    depends_on:
+      postgres:
+        condition: service_healthy  # wait until Postgres is set up and accepting connections
 
   worker:
     <<: *app
@@ -70,7 +132,7 @@ services:
       DB_NODE_PASSWORD: ${DB_NODE_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data  # the database files; kept when containers are removed
-      - ./db/sql:/sql:ro
+      - ./db/bootstrap.sql:/sql/bootstrap.sql:ro
       - ./docker/postgres-init.sh:/docker-entrypoint-initdb.d/init.sh:ro  # runs only on an empty volume
     ports:
       - "127.0.0.1:5433:5432"  # TablePlus: localhost, port 5433
@@ -95,43 +157,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-
-  # ---------- Production layout (only with --profile split) ----------
-  # Same image, one part per container. Only the orchestrator gets a port; the motors are
-  # reachable only inside Docker's network, never from outside.
-
-  orchestrator:
-    <<: *app
-    profiles: ["split"]
-    environment:
-      <<: *app-env
-      SERVICE: orchestrator
-      TRIAGE_URL: http://triage:8000
-      VISUAL_URL: http://visual:8000
-      VITALS_URL: http://vitals:8000
-    ports:
-      - "127.0.0.1:8010:8000"
-
-  triage:
-    <<: *app
-    profiles: ["split"]
-    environment:
-      <<: *app-env
-      SERVICE: triage
-
-  visual:
-    <<: *app
-    profiles: ["split"]
-    environment:
-      <<: *app-env
-      SERVICE: visual
-
-  vitals:
-    <<: *app
-    profiles: ["split"]
-    environment:
-      <<: *app-env
-      SERVICE: vitals
 
 # Named volumes = storage managed by Docker that survives "docker compose down".
 # "docker compose down -v" deletes them (all Docker database and queue data).
