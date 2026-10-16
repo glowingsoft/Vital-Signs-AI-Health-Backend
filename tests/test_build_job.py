@@ -29,7 +29,6 @@ def final_response(motors_used, motors_failed=()) -> dict:
 def test_all_inputs_build_every_row():
     prediction_id = uuid4()
     request = AssessRequest(
-        user_id="u_123",
         symptoms="headache",
         image="base64-image-bytes",
         vitals={"heart_rate": 130, "spo2": 93, "client_reading_id": "r_1"},
@@ -38,7 +37,15 @@ def test_all_inputs_build_every_row():
     outputs = {"triage": motor_output("medium"), "visual": motor_output("medium"), "vitals": motor_output("high")}
     latencies = {"triage": 10, "visual": 20, "vitals": 30}
 
-    job = build_save_assessment_job(prediction_id, request, final_response(outputs), outputs, latencies, 50)
+    job = build_save_assessment_job(
+        prediction_id, request, final_response(outputs), outputs, latencies, 50, user_id="u_123"
+    )
+
+    # Every row belongs to the user_id passed in (in the API, the id from the verified token).
+    assert job.reading.user_id == "u_123"
+    assert job.assessment.user_id == "u_123"
+    assert job.audit_log.actor_id == "u_123" and job.audit_log.patient_id == "u_123"
+    assert all(row.user_id == "u_123" for row in job.ai_usage)
 
     # Reading: labelled by the user, because symptoms were sent.
     assert job.reading.label == "reported_symptom"
@@ -76,12 +83,12 @@ def test_all_inputs_build_every_row():
 
 
 def test_vitals_only_is_labelled_normal():
-    request = AssessRequest(
-        user_id="u_123", vitals={"heart_rate": 70, "client_reading_id": "r_2"}, context={"country": "US"}
-    )
+    request = AssessRequest(vitals={"heart_rate": 70, "client_reading_id": "r_2"}, context={"country": "US"})
     outputs = {"vitals": motor_output("low")}
 
-    job = build_save_assessment_job(uuid4(), request, final_response(outputs), outputs, {"vitals": 5}, 5)
+    job = build_save_assessment_job(
+        uuid4(), request, final_response(outputs), outputs, {"vitals": 5}, 5, user_id="u_123"
+    )
 
     assert job.reading.label == "normal"
     assert job.assessment.label == "normal"
@@ -89,11 +96,11 @@ def test_vitals_only_is_labelled_normal():
 
 
 def test_no_vitals_means_no_reading_and_failed_motors_get_no_rows():
-    request = AssessRequest(user_id="u_123", symptoms="cough", image="img")
+    request = AssessRequest(symptoms="cough", image="img")
     outputs = {"triage": motor_output("medium")}  # visual failed
 
     job = build_save_assessment_job(
-        uuid4(), request, final_response(["triage"], ["visual"]), outputs, {"triage": 5}, 5
+        uuid4(), request, final_response(["triage"], ["visual"]), outputs, {"triage": 5}, 5, user_id="u_123"
     )
 
     assert job.reading is None

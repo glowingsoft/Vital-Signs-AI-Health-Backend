@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
 COPY app ./app
+COPY python_auth ./python_auth
 # Database models and migrations, for the "migrate" container (alembic upgrade head).
 COPY alembic.ini .
 COPY alembic ./alembic

@@ -9,3 +9,4 @@ sqlalchemy[asyncio]==2.0.54
 asyncpg==0.32.0
 alembic==1.16.5
 psycopg[binary]==3.2.13  # sync driver used only by Alembic; the app itself uses asyncpg
+PyJWT==2.9.0  # verifies the NestJS access tokens (python_auth/)

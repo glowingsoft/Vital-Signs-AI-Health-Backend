@@ -40,12 +40,12 @@ def stored_input(request: AssessRequest) -> dict:
     return data
 
 
-def build_reading(request: AssessRequest, context: RequestContext) -> Optional[ReadingRow]:
+def build_reading(request: AssessRequest, user_id: str, context: RequestContext) -> Optional[ReadingRow]:
     vitals = request.vitals
     if vitals is None:
         return None
     return ReadingRow(
-        user_id=request.user_id,
+        user_id=user_id,
         client_reading_id=vitals.client_reading_id,
         measured_at=vitals.measured_at or datetime.now(timezone.utc),
         heart_rate=vitals.heart_rate,
@@ -111,15 +111,17 @@ def build_save_assessment_job(
     motor_outputs: Dict[str, MotorOutput],
     motor_latency_ms: Dict[str, int],
     total_latency_ms: int,
+    user_id: str,
 ) -> SaveAssessmentJob:
-    """response = the final answer after apply_fda_rules(); motor_outputs = only the motors that answered."""
+    """response = the final answer after apply_fda_rules(); motor_outputs = only the motors that answered.
+    user_id = the caller's id from the verified token, never from the request body."""
     context = request.context or RequestContext()  # empty context when the app sent none
     label = pick_label(request)
-    reading = build_reading(request, context)
+    reading = build_reading(request, user_id, context)
 
     assessment = AssessmentRow(
         id=prediction_id,
-        user_id=request.user_id,
+        user_id=user_id,
         reading_id=reading.id if reading else None,
         input_types=input_types(request),
         input=stored_input(request),
@@ -138,12 +140,12 @@ def build_save_assessment_job(
     )
 
     audit_log = AuditLogRow(
-        actor_id=request.user_id,
+        actor_id=user_id,
         actor_role="patient",
         action="create",
         resource_type="assessment",
         resource_id=str(prediction_id),
-        patient_id=request.user_id,
+        patient_id=user_id,
         reason="AI assessment requested",
         after={"risk_level": response["risk_level"], "label": label},
         service="ai",
@@ -157,7 +159,7 @@ def build_save_assessment_job(
             for motor, output in motor_outputs.items()
         ],
         ai_usage=[
-            build_ai_usage(prediction_id, request.user_id, motor, output, motor_latency_ms[motor])
+            build_ai_usage(prediction_id, user_id, motor, output, motor_latency_ms[motor])
             for motor, output in motor_outputs.items()
         ],
         audit_log=audit_log,
