@@ -1,0 +1,183 @@
+# Deploys the AI backend to the dev EC2 server (vitalsigns-ai-backend, us-west-2).
+#
+# Runs on every push to the "dev" branch, or by hand: Actions -> Deploy dev -> Run workflow.
+#   1. Runs the tests. Nothing is deployed if they fail.
+#   2. Copies the code to the server over SSH (the server needs no Git and no GitHub access).
+#   3. Writes .env on the server from the ENV_FILE secret.
+#   4. Installs Docker and swap memory on the server, only if they are missing.
+#   5. Builds and starts the containers (the "migrate" container runs the database migrations).
+#   6. Checks /health and fails the run if the API, Redis or Postgres is not OK.
+#
+# Repository secrets (Settings -> Secrets and variables -> Actions):
+#   EC2_HOST     public IP or DNS name of the server
+#   EC2_USER     ubuntu
+#   EC2_SSH_KEY  full contents of vitalsigns-ai-backend-key.pem
+#   ENV_FILE     full contents of the server's .env (see .env.example for the keys)
+#
+# Nginx is not installed on the server: it runs inside Docker as the "gateway" container.
+
+name: Deploy dev
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+# Never run two deploys at the same time; a newer push waits for the running one.
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: /opt/vitalsigns-ai
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install packages
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          missing=0
+          for name in EC2_HOST EC2_USER EC2_SSH_KEY ENV_FILE; do
+            if [ -z "${!name}" ]; then echo "::error::Secret $name is not set"; missing=1; fi
+          done
+          exit $missing
+
+      - name: Set up SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -T 15 -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          echo "SSH=ssh -i $HOME/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=15" >> "$GITHUB_ENV"
+
+      - name: Prepare the server (Docker, swap, app folder)
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          $SSH "$TARGET" "sudo bash -s" <<SETUP
+          set -euo pipefail
+
+          # Docker Engine + Compose plugin from Docker's official apt repository (only if missing).
+          if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+            echo "Installing Docker ..."
+            apt-get update -qq
+            apt-get install -y -qq ca-certificates curl rsync
+            install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+            chmod a+r /etc/apt/keyrings/docker.asc
+            echo "deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \$(. /etc/os-release && echo \$VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+            apt-get update -qq
+            apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            systemctl enable --now docker
+          else
+            echo "Docker already installed: \$(docker --version)"
+          fi
+
+          # rsync is needed to receive the code.
+          command -v rsync >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq rsync; }
+
+          # 2 GB swap so the small instance does not run out of memory during builds (only once).
+          if ! swapon --show | grep -q /swapfile; then
+            echo "Adding 2 GB swap ..."
+            fallocate -l 2G /swapfile
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          fi
+
+          # App folder, owned by the SSH user so rsync can write to it.
+          mkdir -p "${APP_DIR}"
+          chown "${EC2_USER}:${EC2_USER}" "${APP_DIR}"
+          SETUP
+
+      - name: Copy the code to the server
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+        run: |
+          # --delete removes files that were deleted in the repo. Excluded paths (like .env) are never touched.
+          rsync -az --delete -e "$SSH" \
+            --exclude '.git/' --exclude '.github/' --exclude '.venv/' --exclude '__pycache__/' \
+            --exclude '.pytest_cache/' --exclude '.env' --exclude 'failed_enqueue.jsonl*' \
+            --exclude 'docs/' --exclude 'asserts/' --exclude 'old_sql/' --exclude '.DS_Store' \
+            ./ "$TARGET:${APP_DIR}/"
+
+      - name: Write .env on the server
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          printf '%s\n' "$ENV_FILE" | $SSH "$TARGET" "umask 077 && cat > ${APP_DIR}/.env"
+
+      - name: Build and start the containers
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+        run: |
+          $SSH "$TARGET" "bash -s" <<DEPLOY
+          set -euo pipefail
+          cd "${APP_DIR}"
+          COMPOSE="sudo docker compose -f docker-compose.yml -f docker-compose.aws.yml"
+          \$COMPOSE config --quiet
+          \$COMPOSE up -d --build --remove-orphans
+          # Remove old images so the 20 GB disk does not fill up.
+          sudo docker image prune -f >/dev/null
+          \$COMPOSE ps
+          DEPLOY
+
+      - name: Health check
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+        run: |
+          $SSH "$TARGET" "bash -s" <<'CHECK'
+          set -uo pipefail
+          for i in $(seq 1 30); do
+            body=$(curl -fsS --max-time 5 http://localhost/health || true)
+            if echo "$body" | grep -q '"redis":"ok"' && echo "$body" | grep -q '"database":"ok"'; then
+              echo "Healthy: $body"
+              exit 0
+            fi
+            echo "Waiting for the API ($i/30): ${body:-no answer}"
+            sleep 5
+          done
+          echo "::error::Health check failed. Last answer: ${body:-none}"
+          cd /opt/vitalsigns-ai && sudo docker compose -f docker-compose.yml -f docker-compose.aws.yml logs --tail 50
+          exit 1
+          CHECK
+
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
