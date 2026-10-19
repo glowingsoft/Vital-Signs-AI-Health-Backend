@@ -9,7 +9,7 @@ from typing import Dict, Optional, Tuple
 from uuid import uuid4
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app import config
 from app.orchestrator.build_job import build_save_assessment_job
@@ -17,27 +17,30 @@ from app.orchestrator.consolidate import consolidate
 from app.orchestrator.fda_filter import apply_fda_rules
 from app.shared.contracts import AssessRequest, AssessResponse, MotorInput, MotorOutput
 from app.shared.queue import enqueue
+from python_auth.auth import AuthUser, require_roles  # verifies the NestJS access token
+from python_auth.roles import UserType
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["orchestrator"])
 
 
-def build_motor_inputs(request: AssessRequest) -> Dict[str, MotorInput]:
-    """Turn the app's request into one MotorInput per needed motor. Missing parts = motor not called."""
+def build_motor_inputs(request: AssessRequest, user_id: str) -> Dict[str, MotorInput]:
+    """Turn the app's request into one MotorInput per needed motor. Missing parts = motor not called.
+    user_id = the caller's id from the verified token, never from the request body."""
     now = datetime.now(timezone.utc)
     inputs = {}
     if request.symptoms:
         inputs["triage"] = MotorInput(
-            user_id=request.user_id, timestamp=now, input_type="text", data={"message": request.symptoms}
+            user_id=user_id, timestamp=now, input_type="text", data={"message": request.symptoms}
         )
     if request.image:
         inputs["visual"] = MotorInput(
-            user_id=request.user_id, timestamp=now, input_type="image", data={"image": request.image}
+            user_id=user_id, timestamp=now, input_type="image", data={"image": request.image}
         )
     if request.vitals:
         inputs["vitals"] = MotorInput(
-            user_id=request.user_id,
+            user_id=user_id,
             timestamp=now,
             input_type="vitals",
             # exclude_none = only send the readings the user actually has; mode="json" = dates become strings
@@ -78,10 +81,11 @@ async def call_motor(
 
 
 # async def = this view can wait on network calls without blocking other requests.
+# require_roles = 401 without a valid NestJS access token, 403 unless the caller is a patient (UserType.User).
 @router.post("/ai/assess", response_model=AssessResponse)
-async def assess(request: AssessRequest) -> dict:
+async def assess(request: AssessRequest, user: AuthUser = Depends(require_roles(UserType.User))) -> dict:
     started = time.monotonic()
-    motor_inputs = build_motor_inputs(request)
+    motor_inputs = build_motor_inputs(request, user.user_id)
     if not motor_inputs:
         # HTTPException = FastAPI's way to return an error response (like raising ValidationError in DRF).
         raise HTTPException(status_code=400, detail="Send at least one of: symptoms, image, vitals.")
@@ -110,7 +114,9 @@ async def assess(request: AssessRequest) -> dict:
     # Queue everything for the worker to save. We do NOT wait for the database: XADD takes about
     # a millisecond, and if Redis is down enqueue() writes to a local file instead of failing.
     prediction_id = uuid4()
-    job = build_save_assessment_job(prediction_id, request, response, results, latencies, elapsed_ms(started))
+    job = build_save_assessment_job(
+        prediction_id, request, response, results, latencies, elapsed_ms(started), user_id=user.user_id
+    )
     await enqueue(config.STREAM_SAVE_ASSESSMENT, job)
 
     response["prediction_id"] = prediction_id

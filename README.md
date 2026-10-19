@@ -252,8 +252,8 @@ flowchart LR
 
 - **Mobile app** (iOS and Android). It runs the time-critical parts on the device: vitals readings, critical alerts and the Stage 1 image check. It also reads Apple Health and Samsung Health data.
 - **API gateway.** The app's single URL. `/auth`, `/users`, `/payments` and the other existing routes go to Node. `/ai/*` goes to the FastAPI orchestrator. **The motors cannot be reached from outside.**
-- **Node.js backend** (existing). It handles login and authentication, users, Stripe payments, consent UI flows and supervisor communication. It issues **JWTs signed with RS256**.
-- **FastAPI orchestrator** (this repo). It verifies the Node JWT locally with the public key and **never calls Node per request**.
+- **Node.js backend** (existing). It handles login and authentication, users, Stripe payments, consent UI flows and supervisor communication. It issues **access tokens (JWT) signed with HS256** and a shared secret, `JWT_SECRET`.
+- **FastAPI orchestrator** (this repo). It verifies the Node JWT locally with the same `JWT_SECRET` (`python_auth/`) and **never calls Node per request**. Because the secret is shared, anyone who has it can also create valid tokens, so it must be kept as safe as on the Node side.
 - **Three FastAPI motor services** (this repo): `triage`, `visual` and `vitals`.
 - **Redis.** A message queue and cache shared by all services.
 - **PostgreSQL.** Node keeps its own tables. Python owns a separate `clinical` schema that **only Alembic** manages.
@@ -277,7 +277,7 @@ sequenceDiagram
 
     App->>GW: POST /ai/assess with Node JWT
     GW->>O: forward /ai/* request
-    O->>O: verify JWT (RS256, public key, no call to Node)
+    O->>O: verify JWT (HS256, shared JWT_SECRET, no call to Node)
     O->>DB: check consent record for user_id
     O->>O: choose motors, strip identifiers
     par only the motors this request needs
@@ -337,7 +337,7 @@ flowchart LR
 
 | Area | Node.js backend (existing) | FastAPI AI service (this repo) |
 |---|---|---|
-| Login, auth, JWT issuing (RS256) | ✅ owns | Verifies only, with the public key |
+| Login, auth, JWT issuing (HS256) | ✅ owns | Verifies only, with the shared `JWT_SECRET` |
 | Users and profiles (names, emails, phones) | ✅ owns | ❌ never stored |
 | Stripe payments, subscriptions, refunds | ✅ owns | — |
 | Consent UI flows | ✅ owns | Stores and checks **consent records** in `clinical` |
@@ -611,7 +611,8 @@ gantt
 .
 ├── main.py                 # FastAPI entry point; reads SERVICE and mounts the matching routers
 ├── app/
-│   ├── shared/             # Config, JWT verification, RBAC, DB session, Redis, Bedrock client, contract schemas, access log
+│   ├── shared/             # Config, RBAC, DB session, Redis, Bedrock client, contract schemas, access log
+├── python_auth/            # JWT verification: current_user(), require_roles(), UserType
 │   ├── orchestrator/       # /ai/* routes, motor selection, parallel calls, consolidation, FDA filter, cost logging
 │   └── motors/
 │       ├── triage/         # Motor 1: conversational triage
@@ -686,23 +687,28 @@ Settings are read from `.env` automatically (`app/config.py` loads it); a variab
 pytest
 ```
 
+**Every `/ai/assess` call needs a patient access token** (`Authorization: Bearer …`), the same JWT the NestJS backend issues at login. The user id is taken from the token (`_id`), never from the body; a `user_id` in the body is ignored. No token or a bad/expired one → 401, a non-patient (e.g. doctor) → 403. For local testing, make a 1-hour patient token signed with the `JWT_SECRET` from your `.env`:
+
+```bash
+export TOKEN=$(python -c "import os, time, jwt; from app import config; now = int(time.time()); print(jwt.encode({'_id': '650f1c2e9b1d4a0012345678', 'user_type': 1, 'is_refresh': False, 'iat': now, 'exp': now + 3600}, os.environ['JWT_SECRET'], algorithm='HS256'))")
+```
+
 **Example requests:**
 
 ```bash
 # 1. Vitals only
-curl -X POST http://localhost:8000/ai/assess -H "Content-Type: application/json" \
-  -d '{"user_id": "u_123",
-       "vitals": {"heart_rate": 130, "spo2": 93, "systolic": 150, "diastolic": 95, "respiratory_rate": 22,
+curl -X POST http://localhost:8000/ai/assess -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"vitals": {"heart_rate": 130, "spo2": 93, "systolic": 150, "diastolic": 95, "respiratory_rate": 22,
                   "client_reading_id": "r_001"},
        "context": {"country": "US", "state": "CA", "app_version": "1.0.0"}}'
 
 # 2. Symptoms only
-curl -X POST http://localhost:8000/ai/assess -H "Content-Type: application/json" \
-  -d '{"user_id": "u_123", "symptoms": "headache and dizziness"}'
+curl -X POST http://localhost:8000/ai/assess -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"symptoms": "headache and dizziness"}'
 
 # 3. All three
-curl -X POST http://localhost:8000/ai/assess -H "Content-Type: application/json" \
-  -d '{"user_id": "u_123", "symptoms": "headache and dizziness", "image": "img_001",
+curl -X POST http://localhost:8000/ai/assess -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"symptoms": "headache and dizziness", "image": "img_001",
        "vitals": {"heart_rate": 130, "spo2": 93, "systolic": 150, "diastolic": 95, "respiratory_rate": 22,
                   "client_reading_id": "r_002"},
        "context": {"country": "US", "state": "CA", "app_version": "1.0.0"}}'
@@ -797,11 +803,10 @@ python -m app.worker
 
 `curl http://localhost:8000/health` shows `"redis": "ok"` and `"database": "ok"` when both are reachable. It still returns HTTP 200 when they are down.
 
-**3. Send a request.** Open http://localhost:8000/docs, choose `POST /ai/assess` → *Try it out*, and send:
+**3. Send a request.** Open http://localhost:8000/docs, click **Authorize** and paste a token (see `$TOKEN` above, without "Bearer"), then choose `POST /ai/assess` → *Try it out*, and send:
 
 ```json
 {
-  "user_id": "u_123",
   "symptoms": "headache and dizziness",
   "vitals": {"heart_rate": 130, "spo2": 93, "client_reading_id": "r_100"},
   "context": {"country": "US", "state": "CA"}
@@ -915,12 +920,12 @@ To use TablePlus, connect to host `localhost`, port **5433**, with the `DB_*` us
 - serves its own 404 from `gateway/src/`: a designed page for browsers, JSON (`{"detail": "Not Found", "request_id": ...}`) for apps and curl;
 - rate limits each client IP to 10 requests/second (burst 20) and returns **429** above that;
 - accepts bodies up to 10 MB, passes `X-Real-IP` / `X-Forwarded-For`, and waits 5 s for the orchestrator (motor timeout 2.5 s);
-- has a commented placeholder in `location /ai/` where the JWT check will go.
+- passes the `Authorization` header through unchanged; the token itself is checked by the orchestrator (`python_auth/`). The commented placeholder in `location /ai/` is for an optional extra check at the gateway.
 
 ```bash
 curl http://localhost/health                                   # 200, through the gateway
-curl -X POST http://localhost/ai/assess -H 'Content-Type: application/json' \
-     -d '{"user_id": "u_demo", "symptoms": "cough"}'           # 200, the assessment
+curl -X POST http://localhost/ai/assess -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
+     -d '{"symptoms": "cough"}'                                # 200, the assessment (401 without a token)
 curl -i -X POST http://localhost/motor/triage/analyze          # 404, motors are hidden
 ```
 
@@ -933,7 +938,7 @@ docker compose up -d                                                    # back t
 
 **Versions.** `requirements.txt` pins exact versions, so the Mac `.venv` and the image run the same code. After changing a version, run `pip install -r requirements-dev.txt`, `pytest`, and `docker compose up --build -d`.
 
-> Later milestones add JWT auth (at the gateway) and Bedrock. Never change the database schema by hand or from Node: use an Alembic migration.
+> Later milestones add Bedrock and the remaining RBAC roles. Never change the database schema by hand or from Node: use an Alembic migration.
 
 ---
 
@@ -953,8 +958,7 @@ Never commit real values. Variables marked *proposed* will be confirmed when the
 | `REDIS_URL` | API, worker | Redis for the job queue (default `redis://localhost:6379/0`) |
 | `MAX_JOB_ATTEMPTS` | worker | Failed attempts before a job moves to `jobs:dead` (default 5) |
 | `FAILED_ENQUEUE_FILE` | API, worker | Where jobs go when Redis is down (default `failed_enqueue.jsonl`) |
-| `JWT_PUBLIC_KEY` | orchestrator | PEM public key used to verify Node's RS256 JWTs |
-| `JWT_ISSUER` / `JWT_AUDIENCE` | orchestrator | Expected JWT claims (proposed) |
+| `JWT_SECRET` | orchestrator (every API container) | **Required.** The secret the NestJS backend signs its HS256 access tokens with. The app refuses to start without it, or with NestJS's public fallback value. In Docker it comes from `.env`. |
 | `AWS_REGION` | motors | Approved U.S. Bedrock region |
 | `BEDROCK_ROUTING_CONFIG` | motors | Versioned routing configuration: default, escalation and fallback models per motor (proposed) |
 | `MOTOR_TIMEOUT_SECONDS` | orchestrator | Seconds to wait for each motor before treating it as failed (default 2.5) |
