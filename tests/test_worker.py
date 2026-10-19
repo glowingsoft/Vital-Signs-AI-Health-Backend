@@ -26,7 +26,6 @@ async def services_are_up() -> bool:
 def make_job():
     user_id = f"test_worker_{uuid4().hex[:8]}"
     request = AssessRequest(
-        user_id=user_id,
         symptoms="headache",
         vitals={"heart_rate": 130, "client_reading_id": f"r_{uuid4().hex[:8]}"},
         context={"country": "US"},
@@ -40,7 +39,9 @@ def make_job():
         "motors_used": ["vitals"],
         "motors_failed": [],
     }
-    return build_save_assessment_job(uuid4(), request, response, {"vitals": output}, {"vitals": 12}, 15)
+    return build_save_assessment_job(
+        uuid4(), request, response, {"vitals": output}, {"vitals": 12}, 15, user_id=user_id
+    )
 
 
 async def count_rows(job) -> dict:

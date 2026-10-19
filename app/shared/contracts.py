@@ -89,7 +89,8 @@ class RequestContext(BaseModel):
 
 
 class AssessRequest(BaseModel):
-    user_id: str
+    # No user_id here: it always comes from the verified token (see orchestrator/routes.py).
+    # Unknown fields are ignored, so a user_id sent in the body has no effect.
     symptoms: Optional[str] = None
     image: Optional[str] = None  # for now any string (e.g. an image reference); real images come later
     vitals: Optional[Vitals] = None
