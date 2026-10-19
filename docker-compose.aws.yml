@@ -1,0 +1,20 @@
+# Server (EC2) settings, merged on top of docker-compose.yml. Used only by the deploy workflow:
+#   docker compose -f docker-compose.yml -f docker-compose.aws.yml up -d --build
+# On your Mac, keep using plain "docker compose up": nothing here changes the local setup.
+#
+# What changes on the server:
+# - The gateway listens on all addresses (port 80), not only 127.0.0.1, so it can be reached
+#   through the security group (and later the HTTPS load balancer).
+# - Postgres and Redis publish no ports at all. Only the other containers can reach them.
+# "!override" replaces the list from docker-compose.yml, "!reset" removes it (Docker Compose 2.24.4+).
+
+services:
+  gateway:
+    ports: !override
+      - "80:80"
+
+  postgres:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
