@@ -30,6 +30,9 @@ FastAPI dependencies that verify the JWT access tokens issued by the Vital Signs
 | User (patient) | 1 |
 | Doctor | 2 |
 | Guest | 3 |
+| Supervisor | 4 |
+| Labeler | 5 |
+| Developer | 6 |
 
 **Guards in NestJS:**
 - `AuthGuard` (global `APP_GUARD`) skips routes marked `@Public()`. Otherwise it reads `Authorization: Bearer <token>`, verifies it, and sets `req.user` to the payload. Missing token → 401. Invalid or expired token → **403** (`auth.guard.ts:41`).

@@ -33,6 +33,10 @@ x-app-env: &app-env
   # Same secret the NestJS backend signs access tokens with. main.py loads every router, so every API
   # container imports python_auth and refuses to start without it. ":?" = compose stops with this message.
   JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env (the NestJS token secret)}
+  # AI models. Off by default: the motors answer with their stub rules and nothing calls AWS.
+  # AWS credentials are never set here: on EC2 they come from the instance's IAM role.
+  USE_BEDROCK: ${USE_BEDROCK:-false}
+  AWS_REGION: ${AWS_REGION:-us-west-2}
 
 # Health check for every API container (orchestrator and motors all have GET /health).
 x-api-healthcheck: &api-healthcheck

@@ -3,8 +3,12 @@
 
 from uuid import uuid4
 
+import pytest
+
 from app.orchestrator.build_job import build_save_assessment_job
 from app.shared.contracts import AssessRequest, MotorOutput
+from app.shared.jobs import actor_role_for
+from python_auth.roles import UserType
 
 
 def motor_output(risk_level: str) -> MotorOutput:
@@ -108,3 +112,16 @@ def test_no_vitals_means_no_reading_and_failed_motors_get_no_rows():
     assert job.assessment.motors_failed == ["visual"]
     assert len(job.motor_results) == 1
     assert len(job.ai_usage) == 1
+
+
+@pytest.mark.parametrize("role,expected", [
+    (UserType.Admin, "admin"), (UserType.User, "patient"), (UserType.Doctor, "doctor"),
+    (UserType.Supervisor, "supervisor"), (UserType.Labeler, "labeler"), (UserType.Developer, "developer"),
+])
+def test_actor_role_for_each_role(role, expected):
+    assert actor_role_for(role) == expected
+
+
+def test_guest_never_gets_an_actor_role():
+    with pytest.raises(ValueError):
+        actor_role_for(UserType.Guest)

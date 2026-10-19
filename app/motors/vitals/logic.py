@@ -1,6 +1,9 @@
-# Vitals motor STUB: compares each reading against simple fixed limits.
+# Vitals motor: compares each reading against simple fixed limits.
 # Each reading gets its own risk level; the most serious one becomes the motor's answer.
+# The routed AI model (app/motors/vitals/model.py) only writes the explanation, never the risk level.
 
+from app.motors.runner import usage_fields
+from app.motors.vitals.model import run_model
 from app.shared.contracts import DISCLAIMER_ID, MotorOutput, highest_risk
 
 
@@ -65,12 +68,13 @@ def analyze(data: dict) -> MotorOutput:
         levels.append(check_respiratory_rate(data["respiratory_rate"]))
 
     risk_level = highest_risk(levels)
+    result = run_model(data)
     return MotorOutput(
         risk_level=risk_level,
-        confidence_score=0.8,  # fixed fake value; simple threshold rules are fairly reliable
-        explanation=EXPLANATIONS[risk_level],
+        confidence_score=0.8,  # fixed value; simple threshold rules are fairly reliable
+        explanation=result.text.strip() or EXPLANATIONS[risk_level],  # stub: "" -> the fixed text
         disclaimer_id=DISCLAIMER_ID,
         finding_type="vital_thresholds",
         evidence_level="stub",
-        model_name="stub",  # no AI model yet; token and cost fields keep their default of 0
+        **usage_fields(result),  # model name, tokens and cost; "stub" and 0 when USE_BEDROCK is off
     )

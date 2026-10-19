@@ -71,3 +71,13 @@ DB_PORT = int(os.environ.get("DB_PORT") or "5432")
 DB_NAME = os.environ.get("DB_NAME", "")
 DB_APP_USER = os.environ.get("DB_APP_USER", "")
 DB_APP_PASSWORD = os.environ.get("DB_APP_PASSWORD", "")
+
+# ---------- AI models (Amazon Bedrock) ----------
+
+# "false" (default) = the motors return their stub answers and nothing calls AWS.
+# Keep it false wherever real patient data could flow until the AWS BAA is signed.
+USE_BEDROCK = (os.environ.get("USE_BEDROCK") or "false").strip().lower() in ("1", "true", "yes")
+
+# Bedrock region. The model IDs in app/configurations/models.py are US cross-region profiles.
+# Credentials come from the standard AWS chain (the EC2 instance's IAM role), never from .env.
+AWS_REGION = os.environ.get("AWS_REGION") or "us-west-2"
