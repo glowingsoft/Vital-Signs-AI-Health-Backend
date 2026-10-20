@@ -20,6 +20,8 @@ COPY python_auth ./python_auth
 COPY alembic.ini .
 COPY alembic ./alembic
 COPY collection ./collection
+# Milestone 1 check (python -m scripts.verify_m1), run inside the orchestrator container on the server.
+COPY scripts ./scripts
 
 # Run as a normal user, not root. /data holds failed_enqueue.jsonl (shared by the API and the worker).
 RUN useradd --create-home appuser && mkdir /data && chown appuser /data
