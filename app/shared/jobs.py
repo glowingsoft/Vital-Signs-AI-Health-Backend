@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from python_auth.roles import UserType
+
 RiskLevel = Literal["low", "medium", "high", "critical"]
 Label = Literal["confirmed_diagnosis", "reported_symptom", "normal"]
 LabelSource = Literal["user", "labeler", "supervisor", "doctor", "system"]
@@ -107,10 +109,31 @@ class AiUsageRow(BaseModel):  # ai.ai_usage
     created_at: datetime = Field(default_factory=utc_now)
 
 
+ActorRole = Literal["patient", "doctor", "supervisor", "labeler", "admin", "developer", "system"]
+
+# Token role -> ai.audit_log.actor_role. Guest is left out on purpose: a guest never writes health data.
+ACTOR_ROLES = {
+    UserType.Admin: "admin",
+    UserType.User: "patient",
+    UserType.Doctor: "doctor",
+    UserType.Supervisor: "supervisor",
+    UserType.Labeler: "labeler",
+    UserType.Developer: "developer",
+}
+
+
+def actor_role_for(user_type: UserType) -> ActorRole:
+    """The audit_log actor_role for a caller. Raises ValueError for Guest (or any unmapped role)."""
+    try:
+        return ACTOR_ROLES[user_type]
+    except KeyError:
+        raise ValueError(f"{user_type!r} may not write health data") from None
+
+
 class AuditLogRow(BaseModel):  # ai.audit_log (append-only)
     id: UUID = Field(default_factory=uuid4)
     actor_id: str
-    actor_role: Literal["patient", "doctor", "supervisor", "labeler", "admin", "developer", "system"]
+    actor_role: ActorRole
     action: Literal["view", "create", "update", "export", "delete"]
     resource_type: str
     resource_id: Optional[str] = None

@@ -1,7 +1,9 @@
-# Triage motor STUB: looks for keywords in the symptom text and picks a risk level.
-# No AI yet; this only returns correctly shaped fake answers.
+# Triage motor: keyword rules plus the routed AI model (app/motors/triage/model.py).
+# With USE_BEDROCK off, only the keyword rules answer (the stub).
 
-from app.shared.contracts import DISCLAIMER_ID, MotorOutput
+from app.motors.runner import parse_answer, usage_fields
+from app.motors.triage.model import run_model
+from app.shared.contracts import DISCLAIMER_ID, MotorOutput, highest_risk
 
 # Checked from most to least serious; the first match wins.
 CRITICAL_WORDS = ["chest pain", "can't breathe", "cannot breathe", "unconscious", "seizure"]
@@ -29,13 +31,24 @@ EXPLANATIONS = {
 
 
 def analyze(data: dict) -> MotorOutput:
-    risk_level = pick_risk_level(data.get("message", ""))
+    rule_level = pick_risk_level(data.get("message", ""))
+    # A red-flag keyword sends the text to the escalation model.
+    result = run_model(data, escalate=rule_level == "critical")
+    answer = parse_answer(result.text)  # None for the stub or an answer that breaks the format
+
+    if answer is None:
+        risk_level, confidence, explanation, finding_type = rule_level, 0.6, EXPLANATIONS[rule_level], "symptom_keywords"
+    else:
+        # The keyword rules stay a floor until the model is validated in M2: the model can raise the level, never lower it.
+        risk_level = highest_risk([rule_level, answer["risk_level"]])
+        confidence, explanation, finding_type = answer["confidence_score"], answer["explanation"], "ai_triage"
+
     return MotorOutput(
         risk_level=risk_level,
-        confidence_score=0.6,  # fixed fake value until a real model is plugged in
-        explanation=EXPLANATIONS[risk_level],
+        confidence_score=confidence,
+        explanation=explanation,
         disclaimer_id=DISCLAIMER_ID,
-        finding_type="symptom_keywords",
+        finding_type=finding_type,
         evidence_level="stub",
-        model_name="stub",  # no AI model yet; token and cost fields keep their default of 0
+        **usage_fields(result),  # model name, tokens and cost; "stub" and 0 when USE_BEDROCK is off
     )

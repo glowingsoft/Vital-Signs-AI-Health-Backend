@@ -480,7 +480,19 @@ Before any model goes live, check it against AWS's **current** HIPAA-eligible li
 ### Encryption, access control and logging
 - **At rest:** AES-256, covering the database, backups and the phone's local store.
 - **In transit:** TLS 1.3.
-- **RBAC roles:** patient, doctor, clinical supervisor, labeler, admin, and a restricted developer role. TODO: agree the exact role names and JWT claims with the Node team.
+- **RBAC roles:** the NestJS access token carries the role as the numeric `user_type` claim, and `python_auth/roles.py` mirrors the NestJS `UserType` enum exactly:
+
+  | `user_type` | Role | `audit_log.actor_role` |
+  |---|---|---|
+  | 0 | Admin | `admin` |
+  | 1 | User (patient) | `patient` |
+  | 2 | Doctor | `doctor` |
+  | 3 | Guest | none: a guest never writes health data |
+  | 4 | Supervisor (clinical supervisor) | `supervisor` |
+  | 5 | Labeler | `labeler` |
+  | 6 | Developer (restricted) | `developer` |
+
+  The user id is the `_id` claim. Endpoints opt in with `require_roles(...)`; `POST /ai/assess` is patient-only. The mapping to `actor_role` is `actor_role_for()` in `app/shared/jobs.py`.
 - **Access log:** every health-data access is logged with **who, when and why**. The reason field is required.
 
 ### FDA wording rules
@@ -631,7 +643,7 @@ gantt
 
 ### Getting started (Milestone 1, step 1: stub service)
 
-**What this step does.** It sets up the skeleton of the AI service. The orchestrator (`POST /ai/assess`) checks which inputs the request contains (symptoms, image, vitals). It calls only the motors it needs, all at the same time, and gives each one 2.5 seconds. It keeps the highest risk level, applies the FDA wording rules and returns one answer. The three motors are **stubs**: they use simple rules (for example, `heart_rate > 120` gives `high`) instead of AI. After answering, the orchestrator puts the result on a **Redis queue**, and a separate **worker** saves it to Postgres (see [Queue and worker](#queue-and-worker)). Everything can run on your Mac directly or in Docker (see [Run with Docker](#run-with-docker)). This step has no auth or AWS yet.
+**What this step does.** It sets up the skeleton of the AI service. The orchestrator (`POST /ai/assess`) checks which inputs the request contains (symptoms, image, vitals). It calls only the motors it needs, all at the same time, and gives each one 2.5 seconds. It keeps the highest risk level, applies the FDA wording rules and returns one answer. The three motors answer with simple rules (for example, `heart_rate > 120` gives `high`). Each motor already picks its AI model from one central routing configuration (`app/configurations/`) and calls it through one Bedrock function, but this stays off (`USE_BEDROCK=false`) until M2 and the signed BAA, so nothing calls AWS and every cost row is 0. After answering, the orchestrator puts the result on a **Redis queue**, and a separate **worker** saves it to Postgres (see [Queue and worker](#queue-and-worker)). Everything can run on your Mac directly or in Docker (see [Run with Docker](#run-with-docker)). Every request needs a NestJS access token (see below).
 
 **Current files:**
 
@@ -643,7 +655,13 @@ app/orchestrator/routes.py    POST /ai/assess: pick motors, call them in paralle
 app/orchestrator/consolidate.py   combine motor answers (highest risk wins)
 app/orchestrator/fda_filter.py    banned phrases + disclaimer
 app/motors/<name>/routes.py   POST /motor/<name>/analyze  (triage, visual, vitals)
-app/motors/<name>/logic.py    the stub rules for that motor
+app/motors/<name>/logic.py    the rules for that motor; calls model.py and copies its result into MotorOutput
+app/motors/<name>/model.py    get_model() picks the routed model, run_model() calls it (stub when USE_BEDROCK=false)
+app/motors/runner.py          shared by the motors: try the model, then each fallback, within MOTOR_TIMEOUT_SECONDS
+app/configurations/models.py  every model: Bedrock ID, price per 1M tokens, image support, version
+app/configurations/routing.py default / escalation / fallback models and max output tokens per motor (ROUTING_VERSION)
+app/configurations/pricing.py cost_usd(): tokens × price, saved to ai.ai_usage
+app/shared/bedrock.py         the one Bedrock caller: converse() with a hard timeout
 app/orchestrator/build_job.py turns one /ai/assess call into a SaveAssessmentJob (the rows to save)
 app/shared/jobs.py            Pydantic models of the queued jobs; one *Row model per database table
 app/shared/queue.py           enqueue(): XADD to a Redis Stream, or write to failed_enqueue.jsonl if Redis is down
@@ -938,7 +956,7 @@ docker compose up -d                                                    # back t
 
 **Versions.** `requirements.txt` pins exact versions, so the Mac `.venv` and the image run the same code. After changing a version, run `pip install -r requirements-dev.txt`, `pytest`, and `docker compose up --build -d`.
 
-> Later milestones add Bedrock and the remaining RBAC roles. Never change the database schema by hand or from Node: use an Alembic migration.
+> Later milestones add Bedrock and the endpoints for the other roles. Never change the database schema by hand or from Node: use an Alembic migration.
 
 ---
 
@@ -959,8 +977,8 @@ Never commit real values. Variables marked *proposed* will be confirmed when the
 | `MAX_JOB_ATTEMPTS` | worker | Failed attempts before a job moves to `jobs:dead` (default 5) |
 | `FAILED_ENQUEUE_FILE` | API, worker | Where jobs go when Redis is down (default `failed_enqueue.jsonl`) |
 | `JWT_SECRET` | orchestrator (every API container) | **Required.** The secret the NestJS backend signs its HS256 access tokens with. The app refuses to start without it, or with NestJS's public fallback value. In Docker it comes from `.env`. |
-| `AWS_REGION` | motors | Approved U.S. Bedrock region |
-| `BEDROCK_ROUTING_CONFIG` | motors | Versioned routing configuration: default, escalation and fallback models per motor (proposed) |
+| `USE_BEDROCK` | motors | `false` (default): the motors answer with their stub rules and nothing calls AWS. `true`: the motors call Amazon Bedrock. **Keep `false` wherever real patient data could flow until the AWS BAA is signed.** |
+| `AWS_REGION` | motors | Bedrock region (default `us-west-2`). The model IDs are US cross-region profiles (`us.`); never `global.` |
 | `MOTOR_TIMEOUT_SECONDS` | orchestrator | Seconds to wait for each motor before treating it as failed (default 2.5) |
 | `COST_ALERT_USD_PER_USER` | orchestrator | Projected monthly cost alert threshold, 0.40 (proposed) |
 | `PHI_ENABLED` | all | Stays `false` until the BAA is active (proposed) |
@@ -1034,5 +1052,5 @@ Regulatory points are for the client's legal counsel.
 | 18 | Urgency mapping | How do low / medium / high / critical map to Normal / Warning / Urgent? |
 | 19 | Async results | How does the app receive queued results (image review, offline sync)? |
 | 20 | Service boundaries | Which backend owns the doctor queue, the labeling workflow, synced readings and supervisor notifications? |
-| 21 | JWT claims | Exact claim names for `user_id`, roles, issuer and audience. |
+| 21 | JWT claims | Issuer and audience claims. (User id = `_id` and role = `user_type` 0–6 are agreed; see [§9](#9-security-and-compliance-rules).) |
 | 22 | Multi-motor merge | How are confidence, explanation and reference combined across motors? |

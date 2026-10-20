@@ -12,3 +12,6 @@ class UserType(IntEnum):
     User = 1  # patient
     Doctor = 2
     Guest = 3
+    Supervisor = 4  # clinical supervisor
+    Labeler = 5
+    Developer = 6  # restricted developer access

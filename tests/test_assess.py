@@ -146,10 +146,9 @@ def test_invalid_token_is_401(client, queued_jobs, token):
     assert queued_jobs == []
 
 
-def test_doctor_token_is_403(client, queued_jobs):
-    doctor = auth_header(make_token(user_type=UserType.Doctor))
-
-    response = client.post("/ai/assess", json=SYMPTOMS, headers=doctor)
+@pytest.mark.parametrize("role", [r for r in UserType if r != UserType.User], ids=lambda r: r.name)
+def test_non_patient_token_is_403(client, queued_jobs, role):
+    response = client.post("/ai/assess", json=SYMPTOMS, headers=auth_header(make_token(user_type=role)))
 
     assert response.status_code == 403
     assert queued_jobs == []

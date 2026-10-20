@@ -13,7 +13,9 @@ from app.shared.jobs import (
     MotorResultRow,
     ReadingRow,
     SaveAssessmentJob,
+    actor_role_for,
 )
+from python_auth.roles import UserType
 
 
 def pick_label(request: AssessRequest) -> str:
@@ -141,7 +143,7 @@ def build_save_assessment_job(
 
     audit_log = AuditLogRow(
         actor_id=user_id,
-        actor_role="patient",
+        actor_role=actor_role_for(UserType.User),  # /ai/assess is patient-only
         action="create",
         resource_type="assessment",
         resource_id=str(prediction_id),

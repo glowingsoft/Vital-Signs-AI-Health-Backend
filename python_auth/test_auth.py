@@ -60,6 +60,11 @@ def patients_only(user: AuthUser = Depends(require_roles(UserType.User))):
     return {"ok": True}
 
 
+@app.get("/supervisors")
+def supervisors(user: AuthUser = Depends(require_roles(UserType.Supervisor, UserType.Labeler))):
+    return {"ok": True}
+
+
 @app.get("/staff")
 def staff(user: AuthUser = Depends(require_roles(UserType.Doctor, UserType.Admin))):
     return {"ok": True}
@@ -79,6 +84,13 @@ def test_valid_token_returns_id_and_role_only():
     r = get("/me", make_token())
     assert r.status_code == 200
     assert r.json() == {"user_id": USER_ID, "user_type": 1}
+
+
+@pytest.mark.parametrize("role", [UserType.Supervisor, UserType.Labeler, UserType.Developer])
+def test_new_roles_are_accepted(role):
+    r = get("/me", make_token(user_type=int(role)))
+    assert r.status_code == 200
+    assert r.json() == {"user_id": USER_ID, "user_type": int(role)}
 
 
 def test_auth_user_does_not_carry_email_or_name():
@@ -168,6 +180,20 @@ def test_multiple_allowed_roles(role, expected):
     assert get("/staff", make_token(user_type=role)).status_code == expected
 
 
+@pytest.mark.parametrize("role,expected", [
+    (UserType.Supervisor, 200), (UserType.Labeler, 200), (UserType.Developer, 403),
+    (UserType.Admin, 403), (UserType.Doctor, 403), (UserType.User, 403), (UserType.Guest, 403),
+])
+def test_new_roles_in_require_roles(role, expected):
+    assert get("/supervisors", make_token(user_type=role)).status_code == expected
+
+
+@pytest.mark.parametrize("role", [UserType.Supervisor, UserType.Labeler, UserType.Developer])
+def test_new_roles_are_denied_where_not_listed(role):
+    assert get("/patients-only", make_token(user_type=role)).status_code == 403
+    assert get("/staff", make_token(user_type=role)).status_code == 403
+
+
 def test_role_check_still_requires_valid_token():
     assert get("/staff", make_token(user_type=UserType.Admin, expires_in=-10)).status_code == 401
 
@@ -200,4 +226,6 @@ def test_startup_fails_with_public_nestjs_fallback_secret():
 
 
 def test_roles_match_nestjs_enum():
-    assert {r.name: r.value for r in UserType} == {"Admin": 0, "User": 1, "Doctor": 2, "Guest": 3}
+    assert {r.name: r.value for r in UserType} == {
+        "Admin": 0, "User": 1, "Doctor": 2, "Guest": 3, "Supervisor": 4, "Labeler": 5, "Developer": 6,
+    }
