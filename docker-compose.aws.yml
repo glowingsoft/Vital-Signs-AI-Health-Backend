@@ -3,7 +3,7 @@
 # On your Mac, keep using plain "docker compose up": nothing here changes the local setup.
 #
 # What changes on the server:
-# - The gateway serves HTTPS (TLS 1.3) for vitals-signs.com on port 443, with gateway/nginx.aws.conf.
+# - The gateway serves HTTPS (TLS 1.3) for ai.dev.vitals-signs.com on port 443, with gateway/nginx.aws.conf.
 #   Port 80 only redirects to HTTPS and answers the Let's Encrypt renewal check.
 # - A "certbot" container renews the Let's Encrypt certificate. The first certificate is fetched by
 #   the deploy workflow ("Get the HTTPS certificate" step) before the gateway starts.
