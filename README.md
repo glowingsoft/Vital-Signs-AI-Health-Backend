@@ -956,6 +956,37 @@ docker compose up -d                                                    # back t
 
 **Versions.** `requirements.txt` pins exact versions, so the Mac `.venv` and the image run the same code. After changing a version, run `pip install -r requirements-dev.txt`, `pytest`, and `docker compose up --build -d`.
 
+### Milestone 1 check (`scripts/verify_m1.py`)
+
+One command checks every Milestone 1 deliverable against the **running** service and prints PASS / FAIL / WARN / SKIP for each item. It exits with 1 when anything fails.
+
+| Section | What it checks |
+|---|---|
+| 1. Gateway and orchestrator | `/health` through the gateway (Redis and Postgres OK); `/motor/*`, `/docs` and `/openapi.json` answer 404; no nginx version in headers |
+| 2. REST endpoints and data contract | `POST /ai/assess` with symptoms, vitals, image and all three: HTTP 200, risk level, confidence, explanation, disclaimer ID, prediction ID, right motors called, highest risk wins; 400 for an empty request, 422 for vitals without country |
+| 3. Security | TLS 1.3 works, TLS 1.2 refused, certificate valid (days left), HTTP redirects to HTTPS, HSTS; 401 without / with an invalid / with a refresh token; 403 for Doctor, Developer and Guest; ports 8000, 5432 and 6379 closed from outside |
+| 4. Queue and worker | Redis streams and the worker group exist, a worker is connected, no dead-letter jobs, no jobs left in the Redis-down file |
+| 5. Alembic schema | Database at the latest migration; all 8 tables; the 3 labels; label source, model version, state, country and device columns; disclaimer `disc_v1`; the section 2 requests saved to `assessments`, `motor_results`, `ai_usage` and `vitals_readings`; audit log row with a reason; audit log refuses UPDATE; append-only triggers |
+| 6. Documents | Schema documentation, labeling estimate and AI cost estimate in `docs/`; no Word temp files (skipped on the server, where `docs/` is not deployed) |
+| 7. AI cost and routing | Routing for all three motors, US-only model IDs, rate sheet matches the proposal (Haiku conversation = USD 0.0034), Bedrock on/off |
+| 8. Rate limit | 60 requests at once get some 429 answers (run last; `--skip-rate-limit` to leave it out) |
+
+```bash
+# On the server: every check (runs inside the orchestrator container, so it reaches Postgres and Redis)
+cd /opt/vitalsigns-ai
+sudo docker compose -f docker-compose.yml -f docker-compose.aws.yml exec orchestrator python -m scripts.verify_m1
+
+# On your Mac, local Docker (http://localhost, no HTTPS)
+python -m scripts.verify_m1 --base-url http://localhost --skip-tls
+
+# On your Mac, against the server, without the database and queue (needs the server's JWT_SECRET)
+JWT_SECRET=... python -m scripts.verify_m1 --skip-db
+```
+
+- The test tokens are signed with `JWT_SECRET`, like the NestJS tokens, for the fake patient `0000000000000000000000f1`. Each run saves 4 assessments for that user. The tables are append-only, so filter these rows out of reports with `user_id <> '0000000000000000000000f1'`.
+- AES-256 at rest cannot be seen from inside the server, so it shows as SKIP: check EC2 → Volumes → Encrypted = Yes.
+- With `docker-compose.dev.yml` (Swagger on), the `/docs` check fails on purpose.
+
 > Later milestones add Bedrock and the endpoints for the other roles. Never change the database schema by hand or from Node: use an Alembic migration.
 
 ---
