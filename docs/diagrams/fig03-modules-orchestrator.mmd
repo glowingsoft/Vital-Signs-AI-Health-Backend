@@ -1,0 +1,18 @@
+flowchart LR
+    main["main.py"]
+    main --> oroutes["orchestrator/routes.py"]
+    main --> mroutes["motors/*/routes.py<br/>(see next figure)"]
+    main --> redisc["shared/redis_client.py"]
+    main --> db["shared/db.py"]
+    oroutes --> cons["orchestrator/consolidate.py"]
+    oroutes --> fda["orchestrator/fda_filter.py"]
+    oroutes --> bj["orchestrator/build_job.py"]
+    oroutes --> queue["shared/queue.py"]
+    oroutes --> auth["python_auth/auth.py"]
+    oroutes --> contracts["shared/contracts.py"]
+    bj --> jobs["shared/jobs.py"]
+    queue --> jobs
+    queue --> redisc
+    contracts --> images["shared/images.py"]
+    jobs --> roles["python_auth/roles.py"]
+    auth --> roles

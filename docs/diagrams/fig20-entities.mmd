@@ -1,0 +1,38 @@
+erDiagram
+    vitals_readings ||--o{ assessments : "reading_id"
+    disclaimers ||--o{ assessments : "disclaimer_id"
+    assessments ||--o{ motor_results : "assessment_id"
+    assessments ||--o{ ai_usage : "assessment_id"
+    vitals_readings {
+        uuid id PK
+        text user_id
+        text client_reading_id
+        int heart_rate
+    }
+    assessments {
+        uuid id PK
+        uuid reading_id FK
+        text risk_level
+        text disclaimer_id FK
+    }
+    motor_results {
+        uuid id PK
+        uuid assessment_id FK
+        text motor
+        text model_name
+    }
+    ai_usage {
+        uuid id PK
+        uuid assessment_id FK
+        int input_tokens
+        numeric cost_usd
+    }
+    audit_log {
+        uuid id PK
+        text actor_id
+        text resource_id
+    }
+    disclaimers {
+        text id PK
+        text text
+    }

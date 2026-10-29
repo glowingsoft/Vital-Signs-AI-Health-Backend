@@ -1,0 +1,28 @@
+flowchart LR
+    subgraph IN["The app sends"]
+        tok["token: user id"]
+        sym["symptoms"]
+        img["image"]
+        vit["vitals"]
+        ctx["context"]
+    end
+    subgraph AI["Sent to Bedrock"]
+        a1["symptom text"]
+        a2["image bytes"]
+        a3["risk level + 5 readings"]
+    end
+    subgraph DB["Saved in PostgreSQL"]
+        d1["assessment input<br/>image = omitted"]
+        d2["reading row"]
+        d3["answers, models, cost"]
+    end
+    sym --> a1
+    img --> a2
+    vit --> a3
+    sym & vit & ctx --> d1
+    vit & ctx --> d2
+    tok --> d3
+    AI --> d3
+    tok -. "never sent" .-x AI
+    img -. "bytes never saved" .-x DB
+    d3 --> OUT["The app gets back:<br/>risk, explanation,<br/>disclaimer, prediction_id"]

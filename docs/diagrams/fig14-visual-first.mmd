@@ -1,0 +1,12 @@
+flowchart TD
+    S(["analyze(data)"]) --> NI{"image<br/>empty?"}
+    NI -- yes --> NO["No image was received<br/>low, 0.1"]
+    NI -- no --> IC{"decode_image()<br/>OK?"}
+    IC -- no --> E422["InvalidImage<br/>HTTP 422"]
+    IC -- yes --> BO{"USE_BEDROCK<br/>on?"}
+    BO -- no --> BUSY["AI is busy<br/>medium, 0.0"]
+    BO -- yes --> H["Haiku only<br/>up to 3 JSON retries"]
+    H -- valid --> HA(["Haiku answer:<br/>see the next figure"])
+    H -- "failed" --> BK["Sonnet, then Nova Pro<br/>up to 3 retries each"]
+    BK -- answers --> BKO["backup answer<br/>fallback_used = True<br/>escalated = False"]
+    BK -- "all fail" --> BUSY

@@ -5,7 +5,9 @@ from datetime import datetime
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
+
+from app.shared.images import decode_image
 
 # Literal = the value must be one of these strings (like Django "choices").
 RiskLevel = Literal["low", "medium", "high", "critical"]
@@ -62,6 +64,9 @@ class Vitals(BaseModel):
     systolic: Optional[int] = Field(None, ge=0, le=300)  # blood pressure, top number
     diastolic: Optional[int] = Field(None, ge=0, le=250)  # blood pressure, bottom number
     respiratory_rate: Optional[int] = Field(None, ge=0, le=100)  # breaths per minute
+    # Saved only (no predictive model in this phase): never checked by the rules or sent to the AI.
+    hrv_ms: Optional[float] = Field(None, ge=0, le=99999.99)  # heart rate variability, milliseconds
+    sleep_minutes: Optional[int] = Field(None, ge=0, le=1440)  # minutes of sleep in the period
     client_reading_id: str  # id made on the phone; the same reading sent twice is saved once
     measured_at: Optional[AwareDatetime] = None  # must include a timezone; empty = now
     source: Literal["apple_health", "samsung_health", "device", "manual"] = "manual"
@@ -71,7 +76,10 @@ class Vitals(BaseModel):
     # model_validator runs after the single fields are checked, to check them together.
     @model_validator(mode="after")
     def at_least_one_reading(self):
-        readings = [self.heart_rate, self.spo2, self.systolic, self.diastolic, self.respiratory_rate]
+        readings = [
+            self.heart_rate, self.spo2, self.systolic, self.diastolic, self.respiratory_rate,
+            self.hrv_ms, self.sleep_minutes,
+        ]
         if all(value is None for value in readings):
             raise ValueError("vitals must contain at least one reading")
         return self
@@ -92,9 +100,17 @@ class AssessRequest(BaseModel):
     # No user_id here: it always comes from the verified token (see orchestrator/routes.py).
     # Unknown fields are ignored, so a user_id sent in the body has no effect.
     symptoms: Optional[str] = None
-    image: Optional[str] = None  # for now any string (e.g. an image reference); real images come later
+    image: Optional[str] = None  # base64 JPEG, PNG, GIF or WEBP, at most config.MAX_IMAGE_BYTES once decoded
     vitals: Optional[Vitals] = None
     context: Optional[RequestContext] = None
+
+    @field_validator("image")
+    @classmethod
+    def image_is_readable(cls, image: Optional[str]) -> Optional[str]:
+        # A bad image is refused with a 422 before any motor is called (InvalidImage is a ValueError).
+        if image is not None:
+            decode_image(image)
+        return image
 
     @model_validator(mode="after")
     def country_required_with_vitals(self):

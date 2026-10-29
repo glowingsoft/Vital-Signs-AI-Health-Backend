@@ -1,0 +1,7 @@
+{
+  "theme": "default",
+  "flowchart": { "nodeSpacing": 30, "rankSpacing": 38, "padding": 10, "wrappingWidth": 220 },
+  "sequence": { "actorMargin": 30, "messageMargin": 22, "boxMargin": 6, "noteMargin": 6, "wrap": true, "width": 140 },
+  "gantt": { "fontSize": 14, "sectionFontSize": 14, "barHeight": 30, "barGap": 6, "leftPadding": 150, "topPadding": 40 },
+  "er": { "fontSize": 14 }
+}

@@ -7,7 +7,16 @@ from typing import Dict, Optional, Tuple
 
 from app.configurations.models import MODELS
 
-ROUTING_VERSION = "2026-10-19"
+ROUTING_VERSION = "2026-10-29.2"
+
+# Triage asks the escalation model again when the default model's confidence_score is below this
+# (or its risk_level is "high" or "critical").
+TRIAGE_ESCALATION_CONFIDENCE = 0.7
+
+# Visual asks Sonnet to check again when Haiku's confidence_score is below this.
+VISUAL_ESCALATION_CONFIDENCE = 0.7
+# Times Haiku (and each later visual model) is asked again after an invalid JSON answer.
+VISUAL_MAX_JSON_RETRIES = 3
 
 
 @dataclass(frozen=True)
@@ -20,7 +29,8 @@ class MotorRoute:
 
 ROUTES: Dict[str, MotorRoute] = {
     "triage": MotorRoute(default="haiku", escalation="sonnet", fallbacks=("nova_pro", "llama"), max_output_tokens=1500),
-    # Llama cannot read images, so it is never in the visual route.
+    # Llama cannot read images, so it is never in the visual route. Sonnet answers when Haiku fails or is
+    # unsure (app/motors/visual/logic.py); Nova Pro is the last backup.
     "visual": MotorRoute(default="haiku", escalation="sonnet", fallbacks=("nova_pro",), max_output_tokens=300),
     "vitals": MotorRoute(default="haiku", escalation=None, fallbacks=("nova_lite",), max_output_tokens=200),
 }

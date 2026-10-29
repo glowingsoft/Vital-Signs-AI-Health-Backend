@@ -1,0 +1,24 @@
+flowchart TB
+    App["Mobile app"]
+    Nest["NestJS backend<br/>issues the access token"]
+    App -- "1 log in, 2 get token" --> Nest
+    App -- "3 POST /ai/assess<br/>+ Bearer token" --> GW
+    subgraph Docker["Docker host: docker-compose.yml"]
+        GW["gateway: nginx<br/>passes only /ai/* and /health"]
+        O["orchestrator container<br/>SERVICE=orchestrator"]
+        subgraph Motors["motor containers, same image"]
+            T["triage<br/>SERVICE=triage"]
+            V["visual<br/>SERVICE=visual"]
+            VI["vitals<br/>SERVICE=vitals"]
+        end
+        R[("redis container")]
+        W["worker container<br/>python -m app.worker"]
+        P[("postgres container<br/>schema ai")]
+    end
+    B["Amazon Bedrock<br/>only if USE_BEDROCK=true"]
+    GW --> O
+    O -- "HTTP" --> T & V & VI
+    T & V & VI --> B
+    O -- "XADD job" --> R
+    R --> W
+    W -- "INSERT" --> P

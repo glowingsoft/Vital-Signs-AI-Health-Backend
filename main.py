@@ -1,6 +1,7 @@
 # Entry point (run with: uvicorn main:app --reload).
 # Reads SERVICE and only switches on the routes for that part of the app.
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -12,6 +13,8 @@ from app.motors.vitals.routes import router as vitals_router
 from app.orchestrator.routes import router as orchestrator_router
 from app.shared import db, redis_client
 
+logger = logging.getLogger(__name__)
+
 
 # runs at start up and shutdown of the FastAPI app, to open and close connections to Redis and Postgres.
 @asynccontextmanager
@@ -20,6 +23,8 @@ async def lifespan(app: FastAPI):
 
     # Code before "yield" runs at startup, code after it at shutdown.
     # Redis and the database connect lazily (on first use), so there is nothing to open here.
+    if not config.CONSENT_CHECK_ENABLED and config.SERVICE in ("all", "orchestrator"):
+        logger.warning("CONSENT_CHECK_ENABLED is false: /ai/assess does not check consent (local dev only)")
     yield
     # ── PART 2: SHUTDOWN ──  (runs once, after the server is told to stop)
 

@@ -1,5 +1,6 @@
-# The orchestrator endpoint POST /ai/assess: decides which motors are needed, calls them
-# in parallel over HTTP, combines their answers, applies the FDA wording rules and queues the save.
+# The orchestrator endpoint POST /ai/assess: cleans the input (guardrails), checks consent,
+# decides which motors are needed, calls them in parallel over HTTP, combines their answers,
+# applies the FDA wording rules and queues the save.
 
 import asyncio
 import logging
@@ -13,8 +14,10 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app import config
 from app.orchestrator.build_job import build_save_assessment_job
+from app.orchestrator.consent_check import check_consent
 from app.orchestrator.consolidate import consolidate
 from app.orchestrator.fda_filter import apply_fda_rules
+from app.orchestrator.guardrails import clean_request
 from app.shared.contracts import AssessRequest, AssessResponse, MotorInput, MotorOutput
 from app.shared.queue import enqueue
 from python_auth.auth import AuthUser, require_roles  # verifies the NestJS access token
@@ -85,6 +88,13 @@ async def call_motor(
 @router.post("/ai/assess", response_model=AssessResponse)
 async def assess(request: AssessRequest, user: AuthUser = Depends(require_roles(UserType.User))) -> dict:
     started = time.monotonic()
+    # From here on only the cleaned request is used, so personal data never reaches a model or the database.
+    request, guardrails = clean_request(request)
+    if guardrails.removed:
+        logger.info("Guardrails removed personal data: %s", guardrails.removed)  # counts only, never the text
+    # Before any motor call. The user id comes only from the verified token.
+    await check_consent(user.user_id, request)
+
     motor_inputs = build_motor_inputs(request, user.user_id)
     if not motor_inputs:
         # HTTPException = FastAPI's way to return an error response (like raising ValidationError in DRF).
@@ -115,7 +125,14 @@ async def assess(request: AssessRequest, user: AuthUser = Depends(require_roles(
     # a millisecond, and if Redis is down enqueue() writes to a local file instead of failing.
     prediction_id = uuid4()
     job = build_save_assessment_job(
-        prediction_id, request, response, results, latencies, elapsed_ms(started), user_id=user.user_id
+        prediction_id,
+        request,
+        response,
+        results,
+        latencies,
+        elapsed_ms(started),
+        user_id=user.user_id,
+        pii_removed=guardrails.removed,
     )
     await enqueue(config.STREAM_SAVE_ASSESSMENT, job)
 

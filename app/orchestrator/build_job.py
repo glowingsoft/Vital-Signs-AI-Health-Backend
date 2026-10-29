@@ -55,6 +55,8 @@ def build_reading(request: AssessRequest, user_id: str, context: RequestContext)
         diastolic_bp=vitals.diastolic,
         respiratory_rate=vitals.respiratory_rate,
         spo2=vitals.spo2,
+        hrv_ms=vitals.hrv_ms,
+        sleep_minutes=vitals.sleep_minutes,
         label=pick_label(request),
         label_source="user",
         model_version=vitals.model_version,
@@ -114,9 +116,11 @@ def build_save_assessment_job(
     motor_latency_ms: Dict[str, int],
     total_latency_ms: int,
     user_id: str,
+    pii_removed: Optional[Dict[str, int]] = None,
 ) -> SaveAssessmentJob:
     """response = the final answer after apply_fda_rules(); motor_outputs = only the motors that answered.
-    user_id = the caller's id from the verified token, never from the request body."""
+    user_id = the caller's id from the verified token, never from the request body.
+    pii_removed = how many of each kind of personal data the guardrails removed (counts only, never the text)."""
     context = request.context or RequestContext()  # empty context when the app sent none
     label = pick_label(request)
     reading = build_reading(request, user_id, context)
@@ -141,6 +145,10 @@ def build_save_assessment_job(
         country=context.country,
     )
 
+    after = {"risk_level": response["risk_level"], "label": label}
+    if pii_removed:
+        after["pii_removed"] = dict(pii_removed)
+
     audit_log = AuditLogRow(
         actor_id=user_id,
         actor_role=actor_role_for(UserType.User),  # /ai/assess is patient-only
@@ -149,7 +157,7 @@ def build_save_assessment_job(
         resource_id=str(prediction_id),
         patient_id=user_id,
         reason="AI assessment requested",
-        after={"risk_level": response["risk_level"], "label": label},
+        after=after,
         service="ai",
     )
 

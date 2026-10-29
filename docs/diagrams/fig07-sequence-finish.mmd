@@ -1,0 +1,16 @@
+sequenceDiagram
+    participant O as Orchestrator
+    participant H as Helpers
+    participant Q as queue.py
+    participant R as Redis
+    participant App as Mobile app
+    O->>H: consolidate(results)
+    H-->>O: highest risk + all explanations
+    O->>H: apply_fda_rules(response)
+    H-->>O: safe text + disclaimer
+    O->>H: build_save_assessment_job()
+    H-->>O: SaveAssessmentJob
+    O->>Q: enqueue(job)
+    Q->>R: XADD
+    Note over Q: Redis down: the job goes to a local file instead
+    O-->>App: 200 + prediction_id

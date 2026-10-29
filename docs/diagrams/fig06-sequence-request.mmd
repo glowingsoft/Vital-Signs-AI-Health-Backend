@@ -1,0 +1,19 @@
+sequenceDiagram
+    participant App as Mobile app
+    participant GW as Gateway
+    participant O as Orchestrator
+    participant A as python_auth
+    participant M as Motors
+    App->>GW: POST /ai/assess + token
+    GW->>O: forward
+    O->>A: require_roles(User)
+    A-->>O: AuthUser, or 401 / 403
+    Note over O: body checked as AssessRequest, else 422
+    O->>O: build_motor_inputs()
+    Note over O: nothing to analyse: 400
+    par asyncio.gather, max 2.5 s each
+        O->>M: call_motor("triage")
+        O->>M: call_motor("visual")
+        O->>M: call_motor("vitals")
+    end
+    M-->>O: MotorOutput, or None if failed

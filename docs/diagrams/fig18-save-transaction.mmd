@@ -1,0 +1,9 @@
+flowchart TD
+    H(["handle_save_assessment()"]) --> T1["insert_reading()<br/>only if vitals were sent"]
+    T1 --> T2["insert_assessment()"]
+    T2 --> T3["insert_motor_result()<br/>one per motor"]
+    T3 --> T4["insert_ai_usage()<br/>one per motor"]
+    T4 --> T5["insert_audit_log()"]
+    T5 --> OK["COMMIT, then XACK"]
+    H -. "any error" .-> RB["ROLLBACK, no XACK<br/>retried after 60 s"]
+    RB --> DEAD["5th failure:<br/>moved to jobs:dead"]

@@ -1,0 +1,9 @@
+flowchart TD
+    A["assess()"] --> B["build_save_assessment_job()"]
+    B --> C["enqueue()"]
+    C -- "Redis up" --> R[("stream<br/>jobs:save_assessment")]
+    C -- "Redis down" --> F["failed_enqueue.jsonl"]
+    F -. "replayed when<br/>the worker starts" .-> R
+    R --> W["worker: read_new_jobs()<br/>or reclaim_stuck_jobs()"]
+    W --> PM["process_message()"]
+    PM --> H(["handle_save_assessment():<br/>see the next figure"])

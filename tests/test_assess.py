@@ -16,6 +16,9 @@ def auth_header(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+# A real 1x1 PNG: /ai/assess refuses an image that is not a readable JPEG, PNG, GIF or WEBP.
+PNG_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
 # A valid access token for a patient (UserType.User), the only role allowed on /ai/assess.
 PATIENT = auth_header(make_token(user_type=UserType.User))
 
@@ -85,7 +88,7 @@ def test_symptoms_only(client):
 
     data = client.post("/ai/assess", json=body, headers=PATIENT).json()
 
-    assert data["risk_level"] == "high"  # "dizziness" is a high-risk keyword in the triage stub
+    assert data["risk_level"] == "medium"  # USE_BEDROCK is off in tests: triage answers "ai_unavailable"
     assert data["motors_used"] == ["triage"]
     assert data["motors_failed"] == []
 
@@ -157,7 +160,7 @@ def test_non_patient_token_is_403(client, queued_jobs, role):
 def test_patient_token_user_id_reaches_motors_and_save_job(client, queued_jobs, motor_inputs):
     body = {
         "symptoms": "headache",
-        "image": "img_ref",
+        "image": PNG_IMAGE,
         "vitals": {"heart_rate": 130, "client_reading_id": "r_4"},
         "context": {"country": "US"},
     }

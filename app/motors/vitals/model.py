@@ -9,11 +9,14 @@ MOTOR = "vitals"
 
 SYSTEM_PROMPT = (
     "You explain vital-sign readings in plain language for a wellness app, in one or two short sentences. "
+    "The risk level has already been decided by the app's rules; your explanation must match it. "
+    'Never call the readings normal or fine when the risk level is "medium", "high" or "critical", '
+    "and never state a different risk level. "
     "Never diagnose, never name a condition, medicine or specific medical action, and never sound certain. "
     "Always recommend a healthcare professional."
 )
 
-# Only these readings are sent to the model.
+# Only these readings (and the risk level) are sent to the model. HRV and sleep are only saved.
 READINGS = ["heart_rate", "spo2", "systolic", "diastolic", "respiratory_rate"]
 
 
@@ -22,9 +25,11 @@ def get_model(data: dict, escalate: bool = False) -> str:
     return pick_model(MOTOR, escalate=False)
 
 
-def run_model(data: dict, escalate: bool = False) -> ModelResult:
+def run_model(data: dict, risk_level: str, escalate: bool = False) -> ModelResult:
+    """An explanation of `risk_level` (decided by the rules in logic.py). Raises AllModelsFailed."""
     if not config.USE_BEDROCK:
         return stub_result()
     readings = ", ".join(f"{name}={data[name]}" for name in READINGS if data.get(name) is not None)
-    messages = [{"role": "user", "content": [{"text": f"Readings: {readings}"}]}]
+    text = f"Risk level (already decided, do not change it): {risk_level}. Readings: {readings}"
+    messages = [{"role": "user", "content": [{"text": text}]}]
     return run_chain(MOTOR, get_model(data), messages, SYSTEM_PROMPT, ROUTES[MOTOR].max_output_tokens)

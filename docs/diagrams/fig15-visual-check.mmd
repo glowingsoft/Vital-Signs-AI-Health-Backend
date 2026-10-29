@@ -1,0 +1,8 @@
+flowchart TD
+    HA(["Haiku answer"]) --> C{"confidence<br/>< 0.7?"}
+    C -- no --> OUT["Haiku answer is final<br/>Sonnet not called"]
+    C -- yes --> SC["Sonnet only<br/>checks again"]
+    SC -- fails --> KEEP["keep Haiku answer<br/>escalated = True"]
+    SC -- answers --> CMP{"Sonnet level >=<br/>Haiku level?"}
+    CMP -- yes --> SB["Sonnet answer"]
+    CMP -- "no, lower" --> SA["Haiku answer"]

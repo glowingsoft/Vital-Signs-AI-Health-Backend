@@ -81,3 +81,15 @@ USE_BEDROCK = (os.environ.get("USE_BEDROCK") or "false").strip().lower() in ("1"
 # Bedrock region. The model IDs in app/configurations/models.py are US cross-region profiles.
 # Credentials come from the standard AWS chain (the EC2 instance's IAM role), never from .env.
 AWS_REGION = os.environ.get("AWS_REGION") or "us-west-2"
+
+# Largest image (after base64 decoding) Bedrock accepts in one request: 3.75 MB.
+MAX_IMAGE_BYTES = int(3.75 * 1024 * 1024)
+
+# ---------- Input checks for POST /ai/assess ----------
+
+# Longest symptoms text accepted (after cleaning). Longer = 422.
+MAX_SYMPTOMS_CHARS = int(os.environ.get("MAX_SYMPTOMS_CHARS") or "2000")
+
+# "true" (default) = /ai/assess refuses users who have not given the consents in app/configurations/consent.py.
+# Set it to false only for local development and tests; main.py logs a warning at startup when it is off.
+CONSENT_CHECK_ENABLED = (os.environ.get("CONSENT_CHECK_ENABLED") or "true").strip().lower() in ("1", "true", "yes")

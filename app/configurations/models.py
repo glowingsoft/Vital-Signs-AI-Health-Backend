@@ -23,8 +23,14 @@ class ModelConfig:
 MODELS: Dict[str, ModelConfig] = {
     model.key: model
     for model in [
-        ModelConfig("haiku", "us.anthropic.claude-haiku-5-5", 0.11, 0.55, True, "claude-haiku-5.5"),
-        ModelConfig("sonnet", "us.anthropic.claude-sonnet-5-5", 2.20, 11.00, True, "claude-sonnet-5.5"),
+        # Claude Haiku 4.5 (the Haiku model enabled on the client's account). Price = US Geo profile;
+        # check it on the Bedrock pricing page.
+        ModelConfig(
+            "haiku", "us.anthropic.claude-haiku-4-5-20251001-v1:0", 1.10, 5.50, True, "claude-haiku-4-5-20251001"
+        ),
+        # Claude Sonnet 4.6 (the Sonnet model enabled on the client's account). Price = US Geo profile;
+        # check it on the Bedrock pricing page.
+        ModelConfig("sonnet", "us.anthropic.claude-sonnet-4-6", 3.30, 16.50, True, "claude-sonnet-4-6"),
         ModelConfig("nova_pro", "us.amazon.nova-pro-v1:0", 0.80, 3.20, True, "nova-pro-v1:0"),
         ModelConfig("nova_lite", "us.amazon.nova-lite-v1:0", 0.06, 0.24, True, "nova-lite-v1:0"),
         ModelConfig("llama", "us.meta.llama3-3-70b-instruct-v1:0", 0.72, 0.72, False, "llama3.3-70b-instruct-v1:0"),

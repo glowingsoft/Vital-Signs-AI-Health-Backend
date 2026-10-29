@@ -1,0 +1,13 @@
+flowchart TD
+    S(["run_chain()<br/>chain = model_chain()<br/>deadline set once"]) --> NM{"next model?"}
+    NM -- none --> FAIL["raise AllModelsFailed<br/>(with tokens, cost, time)"]
+    NM -- yes --> T{"time left?"}
+    T -- no --> FAIL
+    T -- yes --> CALL["bedrock.converse()<br/>timeout = time left"]
+    CALL -- "BedrockError" --> NM
+    CALL -- answered --> ADD["add tokens, cost, images"]
+    ADD --> J{"JSON needed<br/>and invalid?"}
+    J -- no --> OK["return ModelResult"]
+    J -- yes --> RL{"retries left?"}
+    RL -- yes --> RC["retry_conversation()"] --> T
+    RL -- no --> NM

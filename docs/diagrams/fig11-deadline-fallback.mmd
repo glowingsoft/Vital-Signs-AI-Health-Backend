@@ -1,0 +1,9 @@
+gantt
+    title Triage, one 2.5 s budget: Haiku fails, Nova Pro answers
+    dateFormat x
+    axisFormat %S.%L s
+    section Orchestrator
+    waits for the triage motor (max 2.5 s)   :o1, 0, 2500
+    section Triage motor
+    Haiku call fails after 1.8 s (e.g. throttled) :crit, h1, 0, 1800
+    Nova Pro gets the 0.7 s left, answers in 0.6 s :done, n1, 1800, 2400

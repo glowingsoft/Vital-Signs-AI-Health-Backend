@@ -1,0 +1,11 @@
+flowchart TB
+    wm["worker/__main__.py"] --> wmain["worker/main.py"]
+    wmain --> wh["worker/handlers.py"]
+    wmain --> redisc["shared/redis_client.py"]
+    wmain --> db["shared/db.py"]
+    wh --> wr["worker/repository.py"]
+    wh --> db
+    wh --> jobs["shared/jobs.py"]
+    wr --> jobs
+    wmain --> jobs
+    jobs --> roles["python_auth/roles.py"]

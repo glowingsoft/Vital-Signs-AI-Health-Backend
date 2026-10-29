@@ -1,0 +1,8 @@
+flowchart TD
+    A1(["first answer"]) --> E{"high or critical<br/>or confidence < 0.7?"}
+    E -- no --> OUT["first answer is final"]
+    E -- yes --> SON["Sonnet, then<br/>Nova Pro, then Llama"]
+    SON -- "all fail" --> KEEP["keep first answer<br/>escalated = True"]
+    SON -- answers --> CMP{"new level >=<br/>first level?"}
+    CMP -- yes --> B["use new answer<br/>model fields = the model that answered"]
+    CMP -- "no, lower" --> C["keep first answer<br/>model fields = first model"]

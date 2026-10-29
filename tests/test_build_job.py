@@ -10,6 +10,9 @@ from app.shared.contracts import AssessRequest, MotorOutput
 from app.shared.jobs import actor_role_for
 from python_auth.roles import UserType
 
+# A real 1x1 PNG: AssessRequest refuses an image that is not a readable JPEG, PNG, GIF or WEBP.
+PNG_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
 
 def motor_output(risk_level: str) -> MotorOutput:
     return MotorOutput(
@@ -34,7 +37,7 @@ def test_all_inputs_build_every_row():
     prediction_id = uuid4()
     request = AssessRequest(
         symptoms="headache",
-        image="base64-image-bytes",
+        image=PNG_IMAGE,
         vitals={"heart_rate": 130, "spo2": 93, "client_reading_id": "r_1"},
         context={"country": "US", "state": "CA", "app_version": "1.0.0"},
     )
@@ -100,7 +103,7 @@ def test_vitals_only_is_labelled_normal():
 
 
 def test_no_vitals_means_no_reading_and_failed_motors_get_no_rows():
-    request = AssessRequest(symptoms="cough", image="img")
+    request = AssessRequest(symptoms="cough", image=PNG_IMAGE)
     outputs = {"triage": motor_output("medium")}  # visual failed
 
     job = build_save_assessment_job(

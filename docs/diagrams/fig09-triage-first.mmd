@@ -1,0 +1,11 @@
+flowchart TD
+    S(["analyze(data)<br/>deadline = now + 2.5 s"]) --> BO{"USE_BEDROCK<br/>on?"}
+    BO -- "no: stub, empty text" --> U["ai_unavailable<br/>medium, 0.0"]
+    BO -- yes --> H["Haiku"]
+    H -- "invalid JSON" --> HR["Haiku again<br/>(1 retry)"]
+    HR -- valid --> A1
+    HR -- "still invalid" --> FB
+    H -- "error or timeout" --> FB["Nova Pro, then Llama<br/>(same rules)"]
+    H -- valid --> A1(["first answer:<br/>see the next figure"])
+    FB -- answers --> A1
+    FB -- "all fail / no time" --> U

@@ -1,0 +1,13 @@
+flowchart TB
+    mroutes["motors/NAME/routes.py"] --> mlogic["motors/NAME/logic.py"]
+    mlogic --> mmodel["motors/NAME/model.py"]
+    mlogic --> runner["motors/runner.py"]
+    mmodel --> runner
+    mmodel --> routing["configurations/routing.py"]
+    mmodel -- "visual only" --> images["shared/images.py"]
+    runner --> bedrock["shared/bedrock.py"]
+    runner --> routing
+    runner --> pricing["configurations/pricing.py"]
+    routing --> models["configurations/models.py"]
+    pricing --> models
+    bedrock --> models

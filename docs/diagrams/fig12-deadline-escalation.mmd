@@ -1,0 +1,9 @@
+gantt
+    title Triage, one 2.5 s budget: Haiku says high, Sonnet checks
+    dateFormat x
+    axisFormat %S.%L s
+    section Orchestrator
+    waits for the triage motor (max 2.5 s)   :o1, 0, 2500
+    section Triage motor
+    Haiku answers high in 0.9 s               :done, h1, 0, 900
+    Sonnet gets the 1.6 s left, answers in 1.2 s :active, s1, 900, 2100

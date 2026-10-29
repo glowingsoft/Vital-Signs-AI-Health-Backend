@@ -1,0 +1,11 @@
+flowchart TB
+    App["App or curl"] -- "POST /ai/assess" --> U
+    subgraph One["One process: uvicorn main:app, SERVICE=all"]
+        U["orchestrator routes<br/>call the motors at localhost:8000"]
+        U -- "HTTP" --> T["/motor/triage/analyze"]
+        U -- "HTTP" --> V["/motor/visual/analyze"]
+        U -- "HTTP" --> VI["/motor/vitals/analyze"]
+    end
+    U --> R[("Redis<br/>job added with XADD")]
+    R --> W["worker, started separately"]
+    W --> P[("PostgreSQL")]

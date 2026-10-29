@@ -1,0 +1,8 @@
+flowchart TD
+    S(["analyze(data)"]) --> Q{"only HRV and / or<br/>sleep sent?"}
+    Q -- yes --> SAVED["data_saved<br/>low, 0.8, no AI"]
+    Q -- no --> CHK["check each reading sent:<br/>heart_rate, spo2, systolic,<br/>diastolic, respiratory_rate"]
+    CHK --> HI["risk_level = highest_risk()<br/>final, the AI cannot change it"]
+    HI --> RM["run_model(data, risk_level)<br/>Haiku, then Nova Lite"]
+    RM -- "AI text" --> EX["explanation = AI text"]
+    RM -- "empty (stub) or<br/>AllModelsFailed" --> FX["explanation =<br/>EXPLANATIONS[risk_level]"]

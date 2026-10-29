@@ -34,9 +34,15 @@ x-app-env: &app-env
   # container imports python_auth and refuses to start without it. ":?" = compose stops with this message.
   JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env (the NestJS token secret)}
   # AI models. Off by default: the motors answer with their stub rules and nothing calls AWS.
-  # AWS credentials are never set here: on EC2 they come from the instance's IAM role.
   USE_BEDROCK: ${USE_BEDROCK:-false}
   AWS_REGION: ${AWS_REGION:-us-west-2}
+  # /ai/assess refuses users without the consents in app/configurations/consent.py. Never false in production.
+  CONSENT_CHECK_ENABLED: ${CONSENT_CHECK_ENABLED:-true}
+  MAX_SYMPTOMS_CHARS: ${MAX_SYMPTOMS_CHARS:-2000}
+  # AWS keys for local development only, read from .env (which git ignores). Leave them out of .env
+  # on EC2: empty values are skipped and the instance's IAM role is used instead.
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
 
 # Health check for every API container (orchestrator and motors all have GET /health).
 x-api-healthcheck: &api-healthcheck
