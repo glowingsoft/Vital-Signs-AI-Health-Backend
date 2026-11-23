@@ -80,11 +80,11 @@ async def insert_assessment(session: AsyncSession, row: AssessmentRow) -> None:
 INSERT_MOTOR_RESULT = text("""
     INSERT INTO ai.motor_results (
         id, assessment_id, motor, risk_level, confidence_score, explanation,
-        finding_type, evidence_level, reference, source_id, source_status,
+        finding_type, evidence_level, reference,
         model_name, model_version, escalated, fallback_used, latency_ms, created_at
     ) VALUES (
         :id, :assessment_id, :motor, :risk_level, :confidence_score, :explanation,
-        :finding_type, :evidence_level, :reference, :source_id, :source_status,
+        :finding_type, :evidence_level, :reference,
         :model_name, :model_version, :escalated, :fallback_used, :latency_ms, :created_at
     )
     ON CONFLICT (id) DO NOTHING

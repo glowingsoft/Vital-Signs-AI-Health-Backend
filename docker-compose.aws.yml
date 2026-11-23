@@ -7,24 +7,12 @@
 #   Port 80 only redirects to HTTPS and answers the Let's Encrypt renewal check.
 # - A "certbot" container renews the Let's Encrypt certificate. The first certificate is fetched by
 #   the deploy workflow ("Get the HTTPS certificate" step) before the gateway starts.
-<<<<<<< HEAD
 # - Postgres and Redis publish no ports at all. Only the other containers can reach them.
-=======
-# - Postgres is published on the server's PRIVATE IP only (PG_PRIVATE_BIND_IP), for the NestJS backend over the
-#   VPC, with SSL on and docker/postgres/pg_hba.conf: from outside Docker only node_backend, only over SSL.
-#   The AWS security group must allow 5432 from the backend server's security group only: AWS forwards traffic
-#   for the Elastic IP to the private IP, so the binding alone does not keep 5432 off the internet.
-# - Redis publishes no ports at all. Only the other containers can reach it.
->>>>>>> v2_main
 # "!override" replaces the list from docker-compose.yml, "!reset" removes it (Docker Compose 2.24.4+).
 #
 # Certificate files live on the server, outside the app folder (rsync --delete never touches them):
 #   /opt/letsencrypt   certificates and renewal settings
 #   /opt/certbot-www   temporary files for the renewal check
-<<<<<<< HEAD
-=======
-#   /opt/postgres-ssl  Postgres server.crt + server.key (made by docker/postgres-ssl.sh)
->>>>>>> v2_main
 
 services:
   gateway:
@@ -50,39 +38,7 @@ services:
     entrypoint: ["/bin/sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"]
 
   postgres:
-<<<<<<< HEAD
     ports: !reset []
-=======
-    # Private IP only, never 0.0.0.0. ":?" = compose stops with this message when it is missing.
-    ports: !override
-      - "${PG_PRIVATE_BIND_IP:?PG_PRIVATE_BIND_IP must be set in .env: the server's private IP (EC2 -> Private IPv4 address)}:5432:5432"
-    volumes:
-      # Added to the volumes in docker-compose.yml (data, bootstrap.sql, init script).
-      - /opt/postgres-ssl:/etc/postgresql/ssl:ro
-      # The folder, not the file: a single-file mount keeps showing the old file after rsync replaces it.
-      - ./docker/postgres:/etc/postgresql/rules:ro
-    # The image's default command is "postgres"; these settings are added to it (also used on the first start).
-    command:
-      - postgres
-      - -c
-      - ssl=on
-      - -c
-      - ssl_cert_file=/etc/postgresql/ssl/server.crt
-      - -c
-      - ssl_key_file=/etc/postgresql/ssl/server.key
-      - -c
-      - ssl_min_protocol_version=TLSv1.3
-      - -c
-      - hba_file=/etc/postgresql/rules/pg_hba.conf
-
-  # The node_backend migration needs the login's password and an admin connection (creating a login needs
-  # an admin; the app login only owns the tables). Required here so a deploy can never skip the role.
-  migrate:
-    environment:
-      NODE_BACKEND_PASSWORD: ${NODE_BACKEND_PASSWORD:?NODE_BACKEND_PASSWORD must be set in .env (the node_backend login password)}
-      DB_ADMIN_USER: postgres
-      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD:-${DB_APP_PASSWORD}}  # same value the postgres service was started with
->>>>>>> v2_main
 
   redis:
     ports: !reset []

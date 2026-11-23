@@ -9,7 +9,7 @@ from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, Integer, Num
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from collection.base import MOTORS, RISK_LEVELS, SOURCE_MATCH_STATUSES, TIMESTAMPTZ, Base, one_of
+from collection.base import MOTORS, RISK_LEVELS, TIMESTAMPTZ, Base, one_of
 
 if TYPE_CHECKING:
     from collection.assessment import Assessment
@@ -22,7 +22,6 @@ class MotorResult(Base):
         CheckConstraint(one_of("risk_level", RISK_LEVELS), name="motor_results_risk_level_check"),
         CheckConstraint("confidence_score BETWEEN 0 AND 1", name="motor_results_confidence_score_check"),
         CheckConstraint("latency_ms >= 0", name="motor_results_latency_ms_check"),
-        CheckConstraint(one_of("source_status", SOURCE_MATCH_STATUSES), name="motor_results_source_status_check"),
         {
             "comment": "Each motor's own answer inside one assessment, before consolidation.",
         },
@@ -40,13 +39,6 @@ class MotorResult(Base):
     evidence_level: Mapped[Optional[str]] = mapped_column(Text, comment="Medical-source field (Spec, Addendum A).")
     reference: Mapped[Optional[str]] = mapped_column(
         Text, comment="Traceable reference from the curated library (Spec, Addendum A)."
-    )
-    # No foreign key on purpose: a result must still be saved if the library row is missing.
-    source_id: Mapped[Optional[str]] = mapped_column(
-        Text, comment="ai.medical_sources.id the AI picked and the backend confirmed. Empty when no source matched."
-    )
-    source_status: Mapped[Optional[str]] = mapped_column(
-        Text, comment="matched, or pending_medical_review when the AI gave no source or one not in the library."
     )
     model_name: Mapped[str] = mapped_column(Text, comment='Model stored per response (Spec, Motor 1). "stub" during M1.')
     model_version: Mapped[Optional[str]] = mapped_column(Text)

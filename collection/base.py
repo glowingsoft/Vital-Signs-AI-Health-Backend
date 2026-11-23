@@ -22,8 +22,6 @@ RISK_LEVELS = ("low", "medium", "high", "critical")
 LABELS = ("confirmed_diagnosis", "reported_symptom", "normal")
 LABEL_SOURCES = ("user", "labeler", "supervisor", "doctor", "system")
 MOTORS = ("triage", "visual", "vitals")
-# ai.motor_results.source_status: did the AI's source id match the trusted library?
-SOURCE_MATCH_STATUSES = ("matched", "pending_medical_review")
 
 
 def one_of(column: str, values: Sequence[str]) -> str:

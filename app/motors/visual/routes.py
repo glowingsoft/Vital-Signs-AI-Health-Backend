@@ -14,12 +14,4 @@ router = APIRouter(prefix="/motor/visual", tags=["visual motor"])
 @router.post("/analyze", response_model=MotorOutput)
 def analyze_endpoint(motor_input: MotorInput) -> MotorOutput:
     # FastAPI has already validated the JSON body into a MotorInput (no serializer.is_valid() needed).
-<<<<<<< Updated upstream
     return analyze(motor_input.data)
-=======
-    try:
-        return analyze(motor_input.data, country=motor_input.country)
-    except InvalidImage as error:
-        # Same answer as POST /ai/assess for a bad image (AssessRequest checks it there).
-        raise HTTPException(status_code=422, detail=str(error)) from None
->>>>>>> Stashed changes

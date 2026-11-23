@@ -3,8 +3,3 @@ __pycache__/
 .pytest_cache/
 .env
 failed_enqueue.jsonl*
-# Postgres SSL certificate and key (docker/postgres-ssl.sh). On the server they live in /opt/postgres-ssl.
-postgres-ssl/
-*.key
-# Reports written by scripts/latency_test.py and scripts/benchmark_models.py
-reports/

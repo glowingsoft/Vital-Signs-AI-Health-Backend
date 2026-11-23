@@ -82,8 +82,6 @@ class MotorResultRow(BaseModel):  # ai.motor_results
     finding_type: Optional[str] = None
     evidence_level: Optional[str] = None
     reference: Optional[str] = None
-    source_id: Optional[str] = None  # ai.medical_sources.id, only when the AI's pick matched the library
-    source_status: Optional[str] = None  # matched or pending_medical_review
     model_name: str
     model_version: Optional[str] = None
     escalated: bool = False
