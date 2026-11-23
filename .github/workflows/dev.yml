@@ -5,14 +5,25 @@
 #   2. Copies the code to the server over SSH (the server needs no Git and no GitHub access).
 #   3. Writes .env on the server from the ENV_FILE secret.
 #   4. Installs Docker and swap memory on the server, only if they are missing.
+<<<<<<< HEAD
 #   5. Builds and starts the containers (the "migrate" container runs the database migrations).
 #   6. Checks /health and fails the run if the API, Redis or Postgres is not OK.
+=======
+#   5. Creates the Postgres SSL certificate on the first deploy (/opt/postgres-ssl, for the NestJS backend).
+#   6. Builds and starts the containers (the "migrate" container runs the database migrations).
+#   7. Checks /health and fails the run if the API, Redis or Postgres is not OK.
+>>>>>>> v2_main
 #
 # Repository secrets (Settings -> Secrets and variables -> Actions):
 #   EC2_HOST     public IP or DNS name of the server
 #   EC2_USER     ubuntu
 #   EC2_SSH_KEY  full contents of vitalsigns-ai-backend-key.pem
+<<<<<<< HEAD
 #   ENV_FILE     full contents of the server's .env (see .env.example for the keys)
+=======
+#   ENV_FILE     full contents of the server's .env (see .env.example for the keys). Must include
+#                PG_PRIVATE_BIND_IP and NODE_BACKEND_PASSWORD: this step rewrites .env on every deploy.
+>>>>>>> v2_main
 #
 # Nginx is not installed on the server: it runs inside Docker as the "gateway" container.
 
@@ -165,6 +176,34 @@ jobs:
             certonly --standalone -d ${DOMAIN} --agree-tos --non-interactive --register-unsafely-without-email
           CERT
 
+<<<<<<< HEAD
+=======
+      - name: Create the Postgres SSL certificate (first deploy only)
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+        run: |
+          # Later deploys skip this; replace it by hand with FORCE=yes (see README, Node backend database access).
+          $SSH "$TARGET" "sudo bash -s" <<PGSSL
+          set -euo pipefail
+          cd "${APP_DIR}"
+          ip=\$(grep -E '^PG_PRIVATE_BIND_IP=' .env | cut -d= -f2- | tr -d '"' | tr -d "'")
+          if [ -z "\$ip" ]; then
+            echo "::error::PG_PRIVATE_BIND_IP is missing from the ENV_FILE secret (the server's private IP)."
+            exit 1
+          fi
+          # A wrong IP would make Docker fail to publish the port: check it belongs to this server.
+          if ! ip -4 -o addr show | grep -qw "\$ip"; then
+            echo "::error::PG_PRIVATE_BIND_IP=\$ip is not an address of this server."
+            exit 1
+          fi
+          if [ -f /opt/postgres-ssl/server.key ]; then
+            echo "Postgres SSL certificate already exists."
+          else
+            bash docker/postgres-ssl.sh "\$ip"
+          fi
+          PGSSL
+
+>>>>>>> v2_main
       - name: Build and start the containers
         env:
           TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
@@ -175,6 +214,11 @@ jobs:
           COMPOSE="sudo docker compose -f docker-compose.yml -f docker-compose.aws.yml"
           \$COMPOSE config --quiet
           \$COMPOSE up -d --build --remove-orphans
+<<<<<<< HEAD
+=======
+          # Apply a changed docker/postgres/pg_hba.conf (Postgres reads it only at start and on reload).
+          \$COMPOSE exec -T postgres psql -U postgres -qAt -c 'SELECT pg_reload_conf()' >/dev/null
+>>>>>>> v2_main
           # Remove old images so the 20 GB disk does not fill up.
           sudo docker image prune -f >/dev/null
           \$COMPOSE ps

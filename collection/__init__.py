@@ -11,6 +11,8 @@ from collection.ai_usage import AiUsage
 from collection.review import Review
 from collection.audit_log import AuditLog
 from collection.consent import Consent
+from collection.medical_source import MedicalSource
+from collection.critical_alert import CriticalAlert
 
 __all__ = [
     "Base",
@@ -22,4 +24,6 @@ __all__ = [
     "Review",
     "AuditLog",
     "Consent",
+    "MedicalSource",
+    "CriticalAlert",
 ]

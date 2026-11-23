@@ -112,6 +112,59 @@ def test_no_vitals_means_no_reading_and_failed_motors_get_no_rows():
     assert job.assessment.motors_failed == ["visual"]
     assert len(job.motor_results) == 1
     assert len(job.ai_usage) == 1
+<<<<<<< HEAD
+=======
+<<<<<<< Updated upstream
+=======
+
+
+def test_image_key_is_saved_in_place_of_the_image():
+    request = AssessRequest(image=PNG_IMAGE, image_key="scans/1234455.png")
+    outputs = {"visual": motor_output("medium")}
+
+    job = build_save_assessment_job(
+        uuid4(), request, final_response(outputs), outputs, {"visual": 5}, 5, user_id="u_123"
+    )
+
+    assert job.assessment.input == {"image": "scans/1234455.png"}  # the key, never the image bytes
+    assert job.assessment.input_types == ["image"]
+
+
+@pytest.mark.parametrize("bad_key", [
+    "../other-user/1.png", "1234455.exe", "", "/1234455.png", "a b.png", "https://bucket.s3/1.png",
+])
+def test_unsafe_image_key_is_refused(bad_key):
+    with pytest.raises(ValueError):
+        AssessRequest(image=PNG_IMAGE, image_key=bad_key)
+
+
+def test_image_key_without_image_is_refused():
+    with pytest.raises(ValueError):
+        AssessRequest(image_key="1234455.png")
+
+
+def test_audio_key_is_saved_with_the_symptoms():
+    request = AssessRequest(symptoms="chest pain since morning", audio_key="voice/1794548444899-a1b2c3.m4a")
+    outputs = {"triage": motor_output("high")}
+
+    job = build_save_assessment_job(
+        uuid4(), request, final_response(outputs), outputs, {"triage": 5}, 5, user_id="u_123"
+    )
+
+    assert job.assessment.input == {"symptoms": "chest pain since morning", "audio": "voice/1794548444899-a1b2c3.m4a"}
+    assert job.assessment.input_types == ["text", "audio"]
+
+
+@pytest.mark.parametrize("bad_key", ["../x.m4a", "voice.exe", "photo.png", "https://bucket.s3/1.m4a", ""])
+def test_unsafe_audio_key_is_refused(bad_key):
+    with pytest.raises(ValueError):
+        AssessRequest(symptoms="cough", audio_key=bad_key)
+
+
+def test_audio_key_without_symptoms_is_refused():
+    with pytest.raises(ValueError):
+        AssessRequest(audio_key="1234455.m4a")
+>>>>>>> v2_main
 
 
 @pytest.mark.parametrize("role,expected", [
@@ -125,3 +178,7 @@ def test_actor_role_for_each_role(role, expected):
 def test_guest_never_gets_an_actor_role():
     with pytest.raises(ValueError):
         actor_role_for(UserType.Guest)
+<<<<<<< HEAD
+=======
+>>>>>>> Stashed changes
+>>>>>>> v2_main

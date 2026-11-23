@@ -1,0 +1,471 @@
+{
+  "info": {
+    "_postman_id": "b0621c18-0189-5a9e-a323-9c49ac1705da",
+    "name": "Vital Signs AI - Medical Sources (Admin)",
+    "description": "Admin API of the trusted medical source library (AI backend, `app/medical_sources/`).\n\n**Setup:** log in through the NestJS backend as an **Admin** user, copy `data.token_res.access_token.token`, and paste it into the collection variable `adminToken`. Any other role gets **403**; no token gets **401**.\n\nSet `sourceId` to the source you work on (e.g. `US-AHA-HF-2022`).\n\n**Typical flow:** Add a source (draft) → Change it if needed → Approve with the client's written approval (active) → Deactivate when it should no longer be cited.\n\nEvery change is written to `ai.audit_log`. The AI picks up changes within 5 minutes.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{adminToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "1. Read",
+      "item": [
+        {
+          "name": "List sources",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ai/admin/medical-sources?country=US&motor=vitals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "admin",
+                "medical-sources"
+              ],
+              "query": [
+                {
+                  "key": "country",
+                  "value": "US"
+                },
+                {
+                  "key": "motor",
+                  "value": "vitals"
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "disabled": true
+                },
+                {
+                  "key": "topic",
+                  "value": "heart_rate",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "All sources, sorted by country and id. Every filter is optional; untick the ones you don't need.\n\n- `country`: `US` or `MX`\n- `status`: `draft`, `proposed_addition`, `active`, `inactive`, `broken`\n- `motor`: `triage`, `visual`, `vitals`\n- `topic`: a key from **List topics**"
+          },
+          "response": [
+            {
+              "name": "200 OK (first source shown)",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"count\": 4,\n  \"sources\": [\n    {\n      \"id\": \"US-AHA-BRADYCARDIA-2018\",\n      \"country\": \"US\",\n      \"language\": \"en\",\n      \"organisation\": \"American College of Cardiology / American Heart Association / Heart Rhythm Society\",\n      \"authors\": \"Kusumoto FM, Schoenfeld MH, Barrett C, et al.\",\n      \"title\": \"2018 ACC/AHA/HRS Guideline on the Evaluation and Management of Patients With Bradycardia and Cardiac Conduction Delay\",\n      \"year\": 2018,\n      \"publication\": \"Circulation. 2019 Aug 20;140(8):e382-e482\",\n      \"doi\": \"10.1161/CIR.0000000000000628\",\n      \"link\": \"https://doi.org/10.1161/CIR.0000000000000628\",\n      \"topics\": [\n        \"heart_rate\"\n      ],\n      \"motors\": [\n        \"vitals\",\n        \"triage\"\n      ],\n      \"patient_label\": \"according to American Heart Association guidelines\",\n      \"evidence_level\": \"clinical_guideline\",\n      \"status\": \"draft\",\n      \"client_decision\": \"approve\",\n      \"needs_client_confirmation\": false,\n      \"approved_by\": null,\n      \"approved_at\": null,\n      \"approval_note\": null,\n      \"current_note\": \"Latest version found on 2026-11-13.\",\n      \"notes\": \"Link opens the full guideline (DOI). Covers slow heart rate. Fast heart rate appears in US-WHO-BEC-2018 and US-CDC-SEPSIS.\",\n      \"link_status\": \"ok\",\n      \"link_checked_at\": \"2026-11-13\",\n      \"created_by\": \"seed\",\n      \"updated_by\": \"seed\",\n      \"created_at\": \"2026-11-18T05:31:41.271050Z\",\n      \"updated_at\": \"2026-11-18T05:31:41.271050Z\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "List topics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ai/admin/medical-sources/topics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "admin",
+                "medical-sources",
+                "topics"
+              ]
+            },
+            "description": "The topic keys a source may use in `topics`."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"topics\": {\n    \"blood_pressure\": \"High or low blood pressure\",\n    \"heart_rate\": \"Fast, slow or irregular heart rate\",\n    \"respiratory_rate\": \"Breathing rate\",\n    \"oxygen_saturation\": \"SpO2 / oxygen level\",\n    \"breathing_difficulty\": \"Shortness of breath\",\n    \"chest_pain\": \"Chest pain or possible heart attack\",\n    \"stroke_symptoms\": \"Signs of stroke\",\n    \"sepsis_infection\": \"Signs of serious infection or sepsis\",\n    \"shock\": \"Signs of shock or poor circulation\",\n    \"altered_mental_status\": \"Confusion or reduced consciousness\",\n    \"diabetes_glucose\": \"Diabetes and blood glucose\",\n    \"wounds_skin\": \"Wounds, ulcers and skin lesions\",\n    \"diabetic_foot\": \"Diabetic foot\",\n    \"burns_trauma\": \"Burns and injuries\",\n    \"cardiovascular_risk\": \"Overall cardiovascular risk\",\n    \"heart_failure\": \"Heart failure\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get one source",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ai/admin/medical-sources/{{sourceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "admin",
+                "medical-sources",
+                "{{sourceId}}"
+              ]
+            },
+            "description": "One source by id (collection variable `sourceId`)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"US-CDC-STROKE\",\n  \"country\": \"US\",\n  \"language\": \"en\",\n  \"organisation\": \"Centers for Disease Control and Prevention\",\n  \"authors\": \"CDC\",\n  \"title\": \"Signs and Symptoms of Stroke\",\n  \"year\": 2026,\n  \"publication\": \"CDC web page, last reviewed 19 May 2026\",\n  \"doi\": null,\n  \"link\": \"https://cdc.gov/stroke/signs-symptoms/index.html\",\n  \"topics\": [\n    \"stroke_symptoms\",\n    \"altered_mental_status\"\n  ],\n  \"motors\": [\n    \"triage\"\n  ],\n  \"patient_label\": \"according to CDC guidance\",\n  \"evidence_level\": \"public_health_guidance\",\n  \"status\": \"draft\",\n  \"client_decision\": \"approve\",\n  \"needs_client_confirmation\": false,\n  \"approved_by\": null,\n  \"approved_at\": null,\n  \"approval_note\": null,\n  \"current_note\": \"Page last reviewed 19 May 2026.\",\n  \"notes\": \"Patient-level page.\",\n  \"link_status\": \"ok\",\n  \"link_checked_at\": \"2026-11-13\",\n  \"created_by\": \"seed\",\n  \"updated_by\": \"seed\",\n  \"created_at\": \"2026-11-18T05:31:41.271050Z\",\n  \"updated_at\": \"2026-11-18T05:31:41.271050Z\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"Medical source 'US-NOPE' not found\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Add and change",
+      "item": [
+        {
+          "name": "Add a source",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/admin/medical-sources",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "admin",
+                "medical-sources"
+              ]
+            },
+            "description": "Adds a source. It is always saved as **draft**: the AI cannot cite it until **Approve** is called.\n\n**Required:** `id`, `country`, `language`, `organisation`, `title`, `link`, `topics`, `motors`, `patient_label`.\n\n**Optional:** `authors`, `year`, `publication`, `doi`, `evidence_level` (default `clinical_guideline`), `client_decision`, `needs_client_confirmation`, `current_note`, `notes`, `reason` (saved in the audit log).\n\nRules: `id` starts with the country (`US-...` or `MX-...`) and uses capital letters, digits and dashes; `link` must be `https://`; `topics` must come from **List topics**; `motors` from `triage`, `visual`, `vitals`; `language` `en` or `es`. `status` cannot be sent.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"US-AHA-HF-2022\",\n  \"country\": \"US\",\n  \"language\": \"en\",\n  \"organisation\": \"American Heart Association / American College of Cardiology / Heart Failure Society of America\",\n  \"authors\": \"Heidenreich PA (Chair), Bozkurt B, Aguilar D, et al.\",\n  \"title\": \"2022 AHA/ACC/HFSA Guideline for the Management of Heart Failure\",\n  \"year\": 2022,\n  \"publication\": \"Circulation. 2022;145(18):e895-e1032\",\n  \"doi\": \"10.1161/CIR.0000000000001063\",\n  \"link\": \"https://doi.org/10.1161/CIR.0000000000001063\",\n  \"topics\": [\n    \"heart_failure\"\n  ],\n  \"motors\": [\n    \"triage\",\n    \"vitals\"\n  ],\n  \"patient_label\": \"according to American Heart Association guidelines\",\n  \"evidence_level\": \"clinical_guideline\",\n  \"notes\": \"Fills the US heart failure gap.\",\n  \"reason\": \"US list had no heart failure source\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"US-AHA-HF-2022\",\n  \"country\": \"US\",\n  \"language\": \"en\",\n  \"organisation\": \"American Heart Association / American College of Cardiology / Heart Failure Society of America\",\n  \"authors\": \"Heidenreich PA (Chair), Bozkurt B, Aguilar D, et al.\",\n  \"title\": \"2022 AHA/ACC/HFSA Guideline for the Management of Heart Failure\",\n  \"year\": 2022,\n  \"publication\": \"Circulation. 2022;145(18):e895-e1032\",\n  \"doi\": \"10.1161/CIR.0000000000001063\",\n  \"link\": \"https://doi.org/10.1161/CIR.0000000000001063\",\n  \"topics\": [\n    \"heart_failure\"\n  ],\n  \"motors\": [\n    \"triage\",\n    \"vitals\"\n  ],\n  \"patient_label\": \"according to American Heart Association guidelines\",\n  \"evidence_level\": \"clinical_guideline\",\n  \"status\": \"draft\",\n  \"client_decision\": null,\n  \"needs_client_confirmation\": false,\n  \"approved_by\": null,\n  \"approved_at\": null,\n  \"approval_note\": null,\n  \"current_note\": null,\n  \"notes\": \"Fills the US heart failure gap.\",\n  \"link_status\": null,\n  \"link_checked_at\": null,\n  \"created_by\": \"650f1c2e9b1d4a0012345678\",\n  \"updated_by\": \"650f1c2e9b1d4a0012345678\",\n  \"created_at\": \"2026-11-18T05:31:44.091823Z\",\n  \"updated_at\": \"2026-11-18T05:31:44.091823Z\"\n}"
+            },
+            {
+              "name": "409 id already exists",
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"Medical source 'US-AHA-HF-2022' already exists; change it with PATCH\"\n}"
+            },
+            {
+              "name": "422 Invalid value",
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"detail\": [\n    {\n      \"type\": \"value_error\",\n      \"loc\": [\n        \"body\",\n        \"link\"\n      ],\n      \"msg\": \"Value error, link must be a full https:// address\",\n      \"input\": \"http://x.org\",\n      \"ctx\": {\n        \"error\": {}\n      }\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Change a source (draft)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/admin/medical-sources/{{sourceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "admin",
+                "medical-sources",
+                "{{sourceId}}"
+              ]
+            },
+            "description": "Changes only the fields you send. `id`, `country` and `status` cannot be changed here.\n\nOn a **draft** (or inactive) source any field can be changed. `reason` is optional and saved in the audit log.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Checked by the medical advisor.\",\n  \"topics\": [\n    \"heart_failure\",\n    \"breathing_difficulty\"\n  ],\n  \"reason\": \"Covers shortness of breath too\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"US-AHA-HF-2022\",\n  \"country\": \"US\",\n  \"language\": \"en\",\n  \"organisation\": \"American Heart Association / American College of Cardiology / Heart Failure Society of America\",\n  \"authors\": \"Heidenreich PA (Chair), Bozkurt B, Aguilar D, et al.\",\n  \"title\": \"2022 AHA/ACC/HFSA Guideline for the Management of Heart Failure\",\n  \"year\": 2022,\n  \"publication\": \"Circulation. 2022;145(18):e895-e1032\",\n  \"doi\": \"10.1161/CIR.0000000000001063\",\n  \"link\": \"https://doi.org/10.1161/CIR.0000000000001063\",\n  \"topics\": [\n    \"heart_failure\",\n    \"breathing_difficulty\"\n  ],\n  \"motors\": [\n    \"triage\",\n    \"vitals\"\n  ],\n  \"patient_label\": \"according to American Heart Association guidelines\",\n  \"evidence_level\": \"clinical_guideline\",\n  \"status\": \"draft\",\n  \"client_decision\": null,\n  \"needs_client_confirmation\": false,\n  \"approved_by\": null,\n  \"approved_at\": null,\n  \"approval_note\": null,\n  \"current_note\": null,\n  \"notes\": \"Checked by the medical advisor.\",\n  \"link_status\": null,\n  \"link_checked_at\": null,\n  \"created_by\": \"650f1c2e9b1d4a0012345678\",\n  \"updated_by\": \"650f1c2e9b1d4a0012345678\",\n  \"created_at\": \"2026-11-18T05:31:44.091823Z\",\n  \"updated_at\": \"2026-11-18T05:31:44.104800Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Change an active source (needs approval)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/admin/medical-sources/{{sourceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "admin",
+                "medical-sources",
+                "{{sourceId}}"
+              ]
+            },
+            "description": "On an **active** source, changing anything the AI or the patient sees (`link`, `title`, `topics`, `motors`, `patient_label`, `organisation`, `authors`, `year`, `publication`, `doi`, `evidence_level`, `language`) needs the client's written approval of the change in `approval`. Without it the answer is **409**. Changing only `notes` or `current_note` needs no approval.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"link\": \"https://www.ahajournals.org/doi/10.1161/CIR.0000000000001063\",\n  \"reason\": \"Publisher page instead of the DOI link\",\n  \"approval\": {\n    \"approved_by\": \"Jose (Vital Signs LLC)\",\n    \"approval_note\": \"WhatsApp 21 Nov 2026: OK to use the publisher link.\",\n    \"approved_at\": \"2026-11-21\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"US-AHA-HF-2022\",\n  \"country\": \"US\",\n  \"language\": \"en\",\n  \"organisation\": \"American Heart Association / American College of Cardiology / Heart Failure Society of America\",\n  \"authors\": \"Heidenreich PA (Chair), Bozkurt B, Aguilar D, et al.\",\n  \"title\": \"2022 AHA/ACC/HFSA Guideline for the Management of Heart Failure\",\n  \"year\": 2022,\n  \"publication\": \"Circulation. 2022;145(18):e895-e1032\",\n  \"doi\": \"10.1161/CIR.0000000000001063\",\n  \"link\": \"https://www.ahajournals.org/doi/10.1161/CIR.0000000000001063\",\n  \"topics\": [\n    \"heart_failure\",\n    \"breathing_difficulty\"\n  ],\n  \"motors\": [\n    \"triage\",\n    \"vitals\"\n  ],\n  \"patient_label\": \"according to American Heart Association guidelines\",\n  \"evidence_level\": \"clinical_guideline\",\n  \"status\": \"active\",\n  \"client_decision\": \"approve\",\n  \"needs_client_confirmation\": false,\n  \"approved_by\": \"Jose (Vital Signs LLC)\",\n  \"approved_at\": \"2026-11-21T00:00:00Z\",\n  \"approval_note\": \"WhatsApp 21 Nov 2026: OK to use the publisher link.\",\n  \"current_note\": null,\n  \"notes\": \"Checked by the medical advisor.\",\n  \"link_status\": null,\n  \"link_checked_at\": null,\n  \"created_by\": \"650f1c2e9b1d4a0012345678\",\n  \"updated_by\": \"650f1c2e9b1d4a0012345678\",\n  \"created_at\": \"2026-11-18T05:31:44.091823Z\",\n  \"updated_at\": \"2026-11-18T05:31:44.118370Z\"\n}"
+            },
+            {
+              "name": "409 Active, no approval",
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"'US-AHA-HF-2022' is active, so changing link needs the client's written approval of the change: send it in \\\"approval\\\", or deactivate the source first\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Approve and deactivate",
+      "item": [
+        {
+          "name": "Approve (make active)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/admin/medical-sources/{{sourceId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "admin",
+                "medical-sources",
+                "{{sourceId}}",
+                "approve"
+              ]
+            },
+            "description": "Records the client's written approval and makes the source **active**: the AI may cite it (within 5 minutes).\n\n- `approved_by` (required): who approved, e.g. Jose (Vital Signs LLC)\n- `approval_note` (required, at least 5 characters): the approval message, or where it is (email date and subject)\n- `approved_at` (optional, `YYYY-MM-DD`): date of the approval; empty = today\n\n409 if the source is already active.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approved_by\": \"Jose (Vital Signs LLC)\",\n  \"approval_note\": \"Email 20 Nov 2026, subject 'Source library': approved US-AHA-HF-2022.\",\n  \"approved_at\": \"2026-11-20\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"US-AHA-HF-2022\",\n  \"country\": \"US\",\n  \"language\": \"en\",\n  \"organisation\": \"American Heart Association / American College of Cardiology / Heart Failure Society of America\",\n  \"authors\": \"Heidenreich PA (Chair), Bozkurt B, Aguilar D, et al.\",\n  \"title\": \"2022 AHA/ACC/HFSA Guideline for the Management of Heart Failure\",\n  \"year\": 2022,\n  \"publication\": \"Circulation. 2022;145(18):e895-e1032\",\n  \"doi\": \"10.1161/CIR.0000000000001063\",\n  \"link\": \"https://doi.org/10.1161/CIR.0000000000001063\",\n  \"topics\": [\n    \"heart_failure\",\n    \"breathing_difficulty\"\n  ],\n  \"motors\": [\n    \"triage\",\n    \"vitals\"\n  ],\n  \"patient_label\": \"according to American Heart Association guidelines\",\n  \"evidence_level\": \"clinical_guideline\",\n  \"status\": \"active\",\n  \"client_decision\": \"approve\",\n  \"needs_client_confirmation\": false,\n  \"approved_by\": \"Jose (Vital Signs LLC)\",\n  \"approved_at\": \"2026-11-20T00:00:00Z\",\n  \"approval_note\": \"Email 20 Nov 2026, subject 'Source library': approved US-AHA-HF-2022.\",\n  \"current_note\": null,\n  \"notes\": \"Checked by the medical advisor.\",\n  \"link_status\": null,\n  \"link_checked_at\": null,\n  \"created_by\": \"650f1c2e9b1d4a0012345678\",\n  \"updated_by\": \"650f1c2e9b1d4a0012345678\",\n  \"created_at\": \"2026-11-18T05:31:44.091823Z\",\n  \"updated_at\": \"2026-11-18T05:31:44.110014Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Deactivate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/admin/medical-sources/{{sourceId}}/deactivate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "admin",
+                "medical-sources",
+                "{{sourceId}}",
+                "deactivate"
+              ]
+            },
+            "description": "The AI stops citing the source. Sources are never deleted (there is no DELETE), so past results keep their reference. `reason` is required. To use it again, call **Approve**.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Replaced by a newer guideline\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"US-AHA-HF-2022\",\n  \"country\": \"US\",\n  \"language\": \"en\",\n  \"organisation\": \"American Heart Association / American College of Cardiology / Heart Failure Society of America\",\n  \"authors\": \"Heidenreich PA (Chair), Bozkurt B, Aguilar D, et al.\",\n  \"title\": \"2022 AHA/ACC/HFSA Guideline for the Management of Heart Failure\",\n  \"year\": 2022,\n  \"publication\": \"Circulation. 2022;145(18):e895-e1032\",\n  \"doi\": \"10.1161/CIR.0000000000001063\",\n  \"link\": \"https://www.ahajournals.org/doi/10.1161/CIR.0000000000001063\",\n  \"topics\": [\n    \"heart_failure\",\n    \"breathing_difficulty\"\n  ],\n  \"motors\": [\n    \"triage\",\n    \"vitals\"\n  ],\n  \"patient_label\": \"according to American Heart Association guidelines\",\n  \"evidence_level\": \"clinical_guideline\",\n  \"status\": \"inactive\",\n  \"client_decision\": \"approve\",\n  \"needs_client_confirmation\": false,\n  \"approved_by\": \"Jose (Vital Signs LLC)\",\n  \"approved_at\": \"2026-11-21T00:00:00Z\",\n  \"approval_note\": \"WhatsApp 21 Nov 2026: OK to use the publisher link.\",\n  \"current_note\": null,\n  \"notes\": \"Checked by the medical advisor.\",\n  \"link_status\": null,\n  \"link_checked_at\": null,\n  \"created_by\": \"650f1c2e9b1d4a0012345678\",\n  \"updated_by\": \"650f1c2e9b1d4a0012345678\",\n  \"created_at\": \"2026-11-18T05:31:44.091823Z\",\n  \"updated_at\": \"2026-11-18T05:31:44.123519Z\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://ai.dev.vitals-signs.com"
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "sourceId",
+      "value": "US-AHA-HF-2022"
+    }
+  ]
+}

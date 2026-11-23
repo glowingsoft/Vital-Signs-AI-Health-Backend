@@ -14,12 +14,22 @@ On your Mac against the server, without the database and queue checks (needs the
 
 Exit code 0 = no FAIL (WARN and SKIP are allowed), 1 = at least one FAIL.
 
+<<<<<<< HEAD
 Test data: every run saves 4 assessments for the test patient VERIFY_USER_ID (below). The tables are
 append-only, so these rows stay. Filter them out of reports with user_id <> VERIFY_USER_ID.
+=======
+Test data: every run saves 4 assessments for the test patient VERIFY_USER_ID (below), and the first run
+gives that patient the consents /ai/assess needs (rows in ai.consents). The tables are append-only, so these
+rows stay. Filter them out of reports with user_id <> VERIFY_USER_ID.
+>>>>>>> v2_main
 """
 
 import argparse
 import asyncio
+<<<<<<< HEAD
+=======
+import ipaddress
+>>>>>>> v2_main
 import os
 import socket
 import ssl
@@ -43,10 +53,35 @@ DEFAULT_BASE_URL = "https://ai.dev.vitals-signs.com"
 # Fake patient used only by this script (24 hex characters, like a MongoDB id).
 VERIFY_USER_ID = "0000000000000000000000f1"
 
+<<<<<<< HEAD
 TABLES = ["vitals_readings", "assessments", "motor_results", "ai_usage", "reviews", "audit_log", "consents", "disclaimers"]
 APPEND_ONLY_TABLES = ["assessments", "reviews", "audit_log", "consents"]
 LABELS = ["confirmed_diagnosis", "reported_symptom", "normal"]
 RISK_LEVELS = ["low", "medium", "high", "critical"]
+=======
+TABLES = [
+    "vitals_readings", "assessments", "motor_results", "ai_usage", "reviews", "audit_log", "consents", "disclaimers",
+    "critical_alerts",
+]
+APPEND_ONLY_TABLES = ["assessments", "reviews", "audit_log", "consents", "critical_alerts"]
+LABELS = ["confirmed_diagnosis", "reported_symptom", "normal"]
+# Consents /ai/assess checks (app/configurations/consent.py): monitoring_fda always, plus triage for symptoms
+# and image_processing for images.
+TEST_CONSENTS = ["monitoring_fda", "triage", "image_processing"]
+# The NestJS backend's login (alembic/versions/..._node_backend_login.py) and the only grants it may have.
+NODE_ROLE = "node_backend"
+# Table grants (information_schema.role_table_grants), from 7635008277b8, b7d2e4f10a35, c4e8a1f2b903, d5a7c3e91f42,
+# 3b560c27ccd3 and 7bcdf5cb3509. No UPDATE, DELETE or TRUNCATE anywhere; nothing on ai_usage; audit_log insert-only.
+NODE_GRANTS = {
+    ("consents", "SELECT"), ("consents", "INSERT"), ("disclaimers", "SELECT"),
+    ("assessments", "SELECT"), ("reviews", "SELECT"), ("reviews", "INSERT"), ("audit_log", "INSERT"),
+    ("vitals_readings", "SELECT"), ("vitals_readings", "INSERT"), ("medical_sources", "SELECT"),
+    ("critical_alerts", "SELECT"), ("critical_alerts", "INSERT"), ("motor_results", "SELECT"),
+}
+RISK_LEVELS = ["low", "medium", "high", "critical"]
+# A real 1x1 PNG: /ai/assess refuses an image that is not a readable picture (422).
+TEST_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+>>>>>>> v2_main
 
 
 # ---------------------------------------------------------------- output
@@ -190,9 +225,15 @@ async def check_rest(report: Report, client: httpx.AsyncClient, token: str) -> d
                         "client_reading_id": f"verify-m1-{run}"}, "context": context},
             ["vitals"],
         ),
+<<<<<<< HEAD
         "visual": ({"image": f"verify-m1-image-{run}", "context": context}, ["visual"]),
         "all motors": (
             {"symptoms": "chest pain and dizziness", "image": f"verify-m1-image-{run}-2",
+=======
+        "visual": ({"image": TEST_IMAGE, "context": context}, ["visual"]),
+        "all motors": (
+            {"symptoms": "chest pain and dizziness", "image": TEST_IMAGE,
+>>>>>>> v2_main
              "vitals": {"heart_rate": 118, "spo2": 94, "client_reading_id": f"verify-m1-{run}-2"}, "context": context},
             ["triage", "visual", "vitals"],
         ),
@@ -217,6 +258,34 @@ async def check_rest(report: Report, client: httpx.AsyncClient, token: str) -> d
     return predictions
 
 
+<<<<<<< HEAD
+=======
+async def give_test_consents(report: Report) -> None:
+    """The test patient needs consent rows, or every /ai/assess call answers 403 (consent_required).
+    Inserts a granted row only for a consent whose newest row is missing or withdrawn (the table is append-only)."""
+    from sqlalchemy import text
+
+    from app.shared.db import get_engine
+
+    try:
+        async with get_engine().begin() as connection:
+            rows = await connection.execute(text("""
+                SELECT DISTINCT ON (consent_type) consent_type, granted FROM ai.consents
+                WHERE user_id = :user ORDER BY consent_type, created_at DESC
+            """), {"user": VERIFY_USER_ID})
+            granted = {row.consent_type for row in rows if row.granted}
+            for consent in TEST_CONSENTS:
+                if consent not in granted:
+                    await connection.execute(text("""
+                        INSERT INTO ai.consents (user_id, consent_type, granted, disclaimer_version, app_version, ip_address)
+                        VALUES (:user, :type, true, 'disc_v1', 'verify-m1', '127.0.0.1')
+                    """), {"user": VERIFY_USER_ID, "type": consent})
+        report.add("PASS", "Test patient has the consents /ai/assess needs", ", ".join(TEST_CONSENTS))
+    except Exception as error:
+        report.add("WARN", "Test patient has the consents /ai/assess needs", f"could not check: {error!r}")
+
+
+>>>>>>> v2_main
 # ---------------------------------------------------------------- 3 + 4. queue, worker, schema
 
 async def check_queue(report: Report) -> None:
@@ -259,7 +328,11 @@ async def wait_for_rows(connection, sql: str, params: dict, minimum: int, second
         await asyncio.sleep(0.5)
 
 
+<<<<<<< HEAD
 async def check_database(report: Report, predictions: dict) -> None:
+=======
+async def check_database(report: Report, predictions: dict, is_local: bool) -> None:
+>>>>>>> v2_main
     from alembic.config import Config
     from alembic.script import ScriptDirectory
     from sqlalchemy import text
@@ -304,6 +377,31 @@ async def check_database(report: Report, predictions: dict) -> None:
         disclaimer = (await connection.execute(text("SELECT count(*) FROM ai.disclaimers WHERE id = 'disc_v1'"))).scalar_one()
         report.check(disclaimer == 1, "Versioned disclaimer disc_v1 exists")
 
+<<<<<<< HEAD
+=======
+        # ---- the NestJS backend's login: only its three grants, never more
+        role = (await connection.execute(text("""
+            SELECT rolsuper, rolcreaterole, rolcreatedb, rolbypassrls FROM pg_roles WHERE rolname = :r
+        """), {"r": NODE_ROLE})).first()
+        if role is None:
+            report.add("SKIP" if is_local else "FAIL", f"Login {NODE_ROLE} exists (NestJS backend)", "not created on this database")
+        else:
+            report.check(not any(role), f"{NODE_ROLE} has no admin rights (superuser, create role/database, bypass RLS)")
+            rows = await connection.execute(text("""
+                SELECT table_name, privilege_type FROM information_schema.role_table_grants
+                WHERE grantee = :r AND table_schema = 'ai'
+            """), {"r": NODE_ROLE})
+            grants = {(row.table_name, row.privilege_type) for row in rows}
+            report.check(grants == NODE_GRANTS, f"{NODE_ROLE} has only its table grants (no UPDATE, DELETE or TRUNCATE)",
+                         f"extra: {sorted(grants - NODE_GRANTS)} missing: {sorted(NODE_GRANTS - grants)}")
+
+        ssl = (await connection.execute(text("SELECT setting FROM pg_settings WHERE name = 'ssl'"))).scalar_one()
+        if is_local:
+            report.add("SKIP", "Postgres SSL is on (NestJS backend connection)", f"local run: ssl={ssl}")
+        else:
+            report.check(ssl == "on", "Postgres SSL is on (NestJS backend connection)", f"ssl={ssl}")
+
+>>>>>>> v2_main
         # ---- the requests from section 2 were saved by the worker
         report.section("5b. Requests saved by the worker (queue -> Postgres)")
         if not predictions:
@@ -360,7 +458,11 @@ async def check_database(report: Report, predictions: dict) -> None:
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'ai' AND NOT t.tgisinternal AND c.relname = ANY(:tables)
         """), {"tables": APPEND_ONLY_TABLES})).scalar_one()
+<<<<<<< HEAD
         report.check(triggers == 2 * len(APPEND_ONLY_TABLES), "Append-only triggers on assessments, reviews, audit_log, consents", f"{triggers} trigger(s)")
+=======
+        report.check(triggers == 2 * len(APPEND_ONLY_TABLES), f"Append-only triggers on {', '.join(APPEND_ONLY_TABLES)}", f"{triggers} trigger(s)")
+>>>>>>> v2_main
     await close_db()
 
 
@@ -439,9 +541,20 @@ async def check_security(report: Report, client: httpx.AsyncClient, base_url: st
     if host in ("localhost", "127.0.0.1"):
         report.add("SKIP", "Internal ports closed from outside", "local run: Postgres and Redis ports are open on your Mac on purpose")
     else:
+<<<<<<< HEAD
         for port, what in [(8000, "orchestrator / motors"), (5432, "Postgres"), (6379, "Redis")]:
             closed = await asyncio.to_thread(port_is_closed, host, port)
             report.check(closed, f"Port {port} ({what}) is not reachable from outside")
+=======
+        # The public address the apps use. Postgres is published on the server's private IP for the NestJS backend,
+        # but it must stay closed here (the security group allows 5432 only from the backend's security group).
+        public_ip = await asyncio.to_thread(socket.gethostbyname, host)
+        if ipaddress.ip_address(public_ip).is_private:
+            report.add("WARN", "Port checks use the public address", f"{host} resolves to the private address {public_ip}")
+        for port, what in [(8000, "orchestrator / motors"), (5432, "Postgres"), (6379, "Redis")]:
+            closed = await asyncio.to_thread(port_is_closed, public_ip, port)
+            report.check(closed, f"Port {port} ({what}) is not reachable on the public address", public_ip)
+>>>>>>> v2_main
 
     report.add("SKIP", "AES-256 encryption at rest", "checked in AWS: EC2 -> Volumes -> Encrypted = Yes (KMS)")
 
@@ -502,6 +615,13 @@ async def main() -> int:
         if not await check_gateway(report, client):
             print("\nThe gateway is not reachable, so the other checks were not run. Check the address, DNS and security group.")
             return report.summary()
+<<<<<<< HEAD
+=======
+        if not args.skip_db:
+            await give_test_consents(report)
+        else:
+            report.add("WARN", "Test patient consents", f"--skip-db: {VERIFY_USER_ID} needs {', '.join(TEST_CONSENTS)} in ai.consents")
+>>>>>>> v2_main
         predictions = await check_rest(report, client, token)
         await check_security(report, client, args.base_url, args.skip_tls, token)
         if args.skip_db:
@@ -509,7 +629,11 @@ async def main() -> int:
             report.add("SKIP", "Queue, worker, schema and saved rows", "--skip-db")
         else:
             await check_queue(report)
+<<<<<<< HEAD
             await check_database(report, predictions)
+=======
+            await check_database(report, predictions, is_local=urlparse(args.base_url).hostname in ("localhost", "127.0.0.1"))
+>>>>>>> v2_main
         check_documents(report)
         check_cost(report)
         if not args.skip_rate_limit:

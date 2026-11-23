@@ -46,7 +46,11 @@ def get_client():
             region_name=config.AWS_REGION,
             config=Config(
                 connect_timeout=1,
+<<<<<<< HEAD
                 read_timeout=config.MOTOR_TIMEOUT_SECONDS,
+=======
+                read_timeout=config.longest_motor_timeout_seconds(),
+>>>>>>> v2_main
                 # No silent retries inside boto3: a failed model goes straight to our fallback list.
                 retries={"total_max_attempts": 1},
             ),
@@ -65,9 +69,15 @@ def converse(
     model_key: str, messages: List[dict], system: str, max_tokens: int, timeout: Optional[float] = None
 ) -> ConverseResult:
     """Send one conversation to one model. Raises BedrockError on any failure or after `timeout` seconds
+<<<<<<< HEAD
     (default MOTOR_TIMEOUT_SECONDS). messages use the Converse format: [{"role": "user", "content": [...]}]."""
     model = MODELS[model_key]
     timeout = config.MOTOR_TIMEOUT_SECONDS if timeout is None else timeout
+=======
+    (default: the longest motor limit). messages use the Converse format: [{"role": "user", "content": [...]}]."""
+    model = MODELS[model_key]
+    timeout = config.longest_motor_timeout_seconds() if timeout is None else timeout
+>>>>>>> v2_main
     started = time.monotonic()
     future = _executor.submit(_call, model.model_id, messages, system, max_tokens)
     try:

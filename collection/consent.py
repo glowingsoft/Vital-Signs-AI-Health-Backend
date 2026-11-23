@@ -16,7 +16,19 @@ class Consent(Base):
     __tablename__ = "consents"
     __table_args__ = (
         CheckConstraint(
-            one_of("consent_type", ("monitoring", "research", "voice_recording", "camera_image", "mexico_data_transfer")),
+            one_of(
+                "consent_type",
+                (
+                    "monitoring_fda",
+                    "research_participation",
+                    "image_processing",
+                    "voice_recording",
+                    "parental_consent",
+                    "age_13_reconsent",
+                    "adult_terms",
+                    "triage",
+                ),
+            ),
             name="consents_consent_type_check",
         ),
         {
@@ -28,7 +40,7 @@ class Consent(Base):
     user_id: Mapped[str] = mapped_column(Text)
     consent_type: Mapped[str] = mapped_column(
         Text,
-        comment="monitoring (required before monitoring starts), research (optional, revocable), voice_recording (Spec, Addendum A), camera_image (Spec, Motor 2), mexico_data_transfer (Proposal Week 4).",
+        comment="monitoring_fda (24/7 monitoring with the FDA disclosure, required), research_participation (optional, revocable), image_processing (photo analysis), voice_recording (Spec, Addendum A), parental_consent (COPPA, under 13), age_13_reconsent (re-consent at 13), adult_terms (adult terms of use), triage (symptom triage).",
     )
     granted: Mapped[bool] = mapped_column(
         Boolean,

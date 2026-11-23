@@ -1,0 +1,357 @@
+{
+  "info": {
+    "_postman_id": "17bcbeee-30bc-5b5a-828f-d0712a5f26cd",
+    "name": "Vital Signs AI - Frontend",
+    "description": "**Setup:** log in through the NestJS backend as a patient, copy `data.token_res.access_token.token`, and paste it into the collection variable `accessToken`. It is sent as `Authorization: Bearer <token>` on every request.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://ai.dev.vitals-signs.com"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "AI Motors",
+      "description": "All three motors use the same endpoint: **POST /ai/assess**. What you send decides the motor:\n- `symptoms` → Triage\n- `image` → Visual (base64 JPEG/PNG, max 3.75 MB)\n- `vitals` → Vitals\n\nShow `explanation` and `disclaimer` to the user. If `risk_level` is `critical`, show the SOS screen.",
+      "item": [
+        {
+          "name": "Triage",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/assess",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "assess"
+              ]
+            },
+            "description": "The user's symptoms as text (English or Spanish).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symptoms\": \"Mild headache since this morning, no fever.\",\n  \"context\": {\n    \"app_version\": \"1.0.0\",\n    \"state\": \"CA\",\n    \"country\": \"US\",\n    \"device_platform\": \"ios\",\n    \"device_model\": \"iPhone 15\",\n    \"os_version\": \"18.0\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"risk_level\": \"low\",\n  \"confidence_score\": 0.9,\n  \"explanation\": \"A mild headache without other symptoms suggests low urgency. If it gets worse, contact a healthcare professional.\",\n  \"disclaimer_id\": \"disc_v1\",\n  \"disclaimer\": \"This result is not a diagnosis. Always consult your doctor.\",\n  \"motors_used\": [\n    \"triage\"\n  ],\n  \"motors_failed\": [],\n  \"sources\": [\n    {\n      \"motor\": \"triage\",\n      \"status\": \"pending_medical_review\",\n      \"label\": \"Pending medical review\",\n      \"link\": null\n    }\n  ],\n  \"prediction_id\": \"2cef99ab-2cda-44c0-958a-d1354a7f5b68\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Visual",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/assess",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "assess"
+              ]
+            },
+            "description": "A photo as base64. The sample is a tiny test image; replace it with a real photo.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"image\": \"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==\",\n  \"context\": {\n    \"app_version\": \"1.0.0\",\n    \"state\": \"CA\",\n    \"country\": \"US\",\n    \"device_platform\": \"ios\",\n    \"device_model\": \"iPhone 15\",\n    \"os_version\": \"18.0\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"risk_level\": \"medium\",\n  \"confidence_score\": 0.9,\n  \"explanation\": \"The image shows an area that is worth reviewing with a healthcare professional.\",\n  \"disclaimer_id\": \"disc_v1\",\n  \"disclaimer\": \"This result is not a diagnosis. Always consult your doctor.\",\n  \"motors_used\": [\n    \"visual\"\n  ],\n  \"motors_failed\": [],\n  \"sources\": [\n    {\n      \"motor\": \"visual\",\n      \"status\": \"pending_medical_review\",\n      \"label\": \"Pending medical review\",\n      \"link\": null\n    }\n  ],\n  \"prediction_id\": \"2cef99ab-2cda-44c0-958a-d1354a7f5b68\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Vitals",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/assess",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "assess"
+              ]
+            },
+            "description": "Readings from the phone or watch; send only the ones you have. `client_reading_id` must be unique per reading, and `context.country` is required.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vitals\": {\n    \"client_reading_id\": \"{{$guid}}\",\n    \"heart_rate\": 82,\n    \"spo2\": 97,\n    \"systolic\": 120,\n    \"diastolic\": 80,\n    \"respiratory_rate\": 16\n  },\n  \"context\": {\n    \"app_version\": \"1.0.0\",\n    \"state\": \"CA\",\n    \"country\": \"US\",\n    \"device_platform\": \"ios\",\n    \"device_model\": \"iPhone 15\",\n    \"os_version\": \"18.0\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"risk_level\": \"low\",\n  \"confidence_score\": 0.9,\n  \"explanation\": \"Your readings appear within typical adult ranges. If anything worries you, talk to a healthcare professional.\",\n  \"disclaimer_id\": \"disc_v1\",\n  \"disclaimer\": \"This result is not a diagnosis. Always consult your doctor.\",\n  \"motors_used\": [\n    \"vitals\"\n  ],\n  \"motors_failed\": [],\n  \"sources\": [\n    {\n      \"motor\": \"vitals\",\n      \"status\": \"pending_medical_review\",\n      \"label\": \"Pending medical review\",\n      \"link\": null\n    }\n  ],\n  \"prediction_id\": \"2cef99ab-2cda-44c0-958a-d1354a7f5b68\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Motors are blocked",
+      "description": "The motors cannot be called directly. Each request must answer 404.",
+      "item": [
+        {
+          "name": "Triage motor (blocked)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/motor/triage/analyze",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "motor",
+                "triage",
+                "analyze"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"Not Found\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Blocked (404)', function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Visual motor (blocked)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/motor/visual/analyze",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "motor",
+                "visual",
+                "analyze"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"Not Found\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Blocked (404)', function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Vitals motor (blocked)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/motor/vitals/analyze",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "motor",
+                "vitals",
+                "analyze"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"Not Found\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Blocked (404)', function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

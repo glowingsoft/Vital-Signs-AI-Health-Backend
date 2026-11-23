@@ -8,6 +8,9 @@ BANNED_PHRASES = [
     "you have",
     "this is",
     "go to the er",
+    "emergency room",
+    "emergency services",
+    "call 911",
     "take this medicine",
     "diagnosis is",
 ]
