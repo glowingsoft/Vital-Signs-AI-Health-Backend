@@ -1,0 +1,76 @@
+# PLATFORM: the parts every version of the backend shares. Always running; never removed with a version.
+#   gateway   the only way in from outside; sends /v1/... to v1, /v2/... to v2, ... (gateway/nginx.conf)
+#   postgres  ONE database for every version (same data, same logins)
+# Each version (docker-compose.yml) runs only its own code + its own Redis, and reaches these two over
+# the shared Docker network "vitalsigns-shared".
+#
+# Local start (your Mac), from the repo root:
+#   docker network create vitalsigns-shared          # once
+#   docker compose -f docker-compose.platform.yml up -d
+#   docker compose up -d --build                     # then the version (see docker-compose.yml)
+# On the server: .github/workflows/platform.yml (adds docker-compose.platform.aws.yml for HTTPS).
+#
+# Values (DB_NAME, passwords, ...) come from .env in this folder.
+
+name: vitalsigns-platform
+
+services:
+  # ---------- Gateway: the only entry point from outside ----------
+  # /vN/health and /vN/ai/* -> "vN-orchestrator"; /health and /ai/* -> the default version
+  # (gateway/default-version.conf); 404 for everything else; rate limit per IP.
+  gateway:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./gateway/default-version.conf:/etc/nginx/vitalsigns/default-version.conf:ro
+      - ./gateway/src:/usr/share/nginx/errors:ro  # custom 404 pages (HTML for browsers, JSON for apps)
+    ports:
+      # 127.0.0.1 = reachable only from your Mac, not your network. GATEWAY_PORT: another port if 80 is taken.
+      - "127.0.0.1:${GATEWAY_PORT:-80}:80"
+    networks: [shared]
+
+  # ---------- Postgres: one database for every version ----------
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      # Admin password. Set DB_ADMIN_PASSWORD in .env to use a separate one; otherwise the app password is reused.
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:-${DB_APP_PASSWORD}}
+      # Read by postgres/init.sh on the first start.
+      DB_NAME: ${DB_NAME}
+      DB_APP_USER: ${DB_APP_USER}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
+      DB_NODE_USER: ${DB_NODE_USER}
+      DB_NODE_PASSWORD: ${DB_NODE_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data  # the database files; kept when containers are removed
+      - ./postgres/bootstrap.sql:/sql/bootstrap.sql:ro
+      - ./postgres/init.sh:/docker-entrypoint-initdb.d/init.sh:ro  # runs only on an empty volume
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"  # TablePlus: localhost, port 5433
+    healthcheck:
+      # -h 127.0.0.1 = check over TCP. During first-time setup Postgres only listens on a local socket,
+      # so this stays "unhealthy" until the init script has finished.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d $${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # Every version reaches it as "postgres" (DB_HOST). The versions have no Postgres of their own,
+    # so on the shared network this name is unique.
+    networks: [shared]
+
+networks:
+  # Created once with "docker network create vitalsigns-shared" (the deploy workflows do it on the server).
+  # Every version joins it too.
+  shared:
+    external: true
+    name: vitalsigns-shared
+
+volumes:
+  pgdata:
+    # A fixed name, so the database survives the move from the old all-in-one setup:
+    # on the server the existing data lives in "vitalsigns-ai_pgdata" (old project "vitalsigns-ai").
+    # On your Mac set PGDATA_VOLUME in .env to keep your local data, e.g. vital-signs-ai-health-backend_pgdata.
+    name: ${PGDATA_VOLUME:-vitalsigns-ai_pgdata}

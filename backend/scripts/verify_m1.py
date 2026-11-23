@@ -2,11 +2,11 @@
 
 It makes real requests through the gateway, then looks in Postgres and Redis to see that they were saved.
 
-On the server (every check, including the database and the queue). Run from the app folder:
-    cd /opt/vitalsigns-ai
+On the server (every check, including the database and the queue). Run from the version's folder:
+    cd /opt/vitalsigns-v1
     sudo docker compose -f docker-compose.yml -f docker-compose.aws.yml exec orchestrator python -m scripts.verify_m1
 
-On your Mac against local Docker (gateway on http://localhost, no HTTPS there):
+On your Mac against local Docker (gateway on http://localhost, no HTTPS there), from backend/:
     python -m scripts.verify_m1 --base-url http://localhost --skip-tls
 
 On your Mac against the server, without the database and queue checks (needs the server's JWT_SECRET):
@@ -450,7 +450,7 @@ async def check_security(report: Report, client: httpx.AsyncClient, base_url: st
 
 def check_documents(report: Report) -> None:
     report.section("6. Milestone 1 documents")
-    docs = PROJECT_ROOT / "docs"
+    docs = PROJECT_ROOT.parent / "docs"  # docs/ sits at the repo root, next to backend/
     if not docs.exists():
         report.add("SKIP", "Documents", "docs/ is not deployed to the server; run this on your Mac to check them")
         return

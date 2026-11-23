@@ -2,6 +2,8 @@
 
 The complete guide to the Vital Signs Phase Three project: what the system does, who uses it, how it is built and what it must meet.
 
+> **Folder layout and versions:** see [VERSIONS.md](VERSIONS.md). The code is in `backend/`. `gateway/` and `postgres/` are the shared platform that every version (v1, v2, …) uses. Some file paths in the rest of this README come from the older single-folder layout (e.g. `app/` is now `backend/app/`).
+
 This repository holds the **Python FastAPI AI service**, which is the orchestrator plus the three AI motors. The README covers the **whole project**, including the parts built in the mobile app and the existing Node.js backend.
 
 - **Client:** Vital Signs LLC

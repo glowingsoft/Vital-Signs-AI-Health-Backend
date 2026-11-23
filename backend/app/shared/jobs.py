@@ -1,5 +1,5 @@
 # Pydantic models for the jobs put on the Redis queue. Each *Row model has the same fields as
-# one table in the "ai" schema (see db/sql/02_schema_and_tables.sql), so the worker can insert it as-is.
+# one table in the "ai" schema (see old_sql/02_schema_and_tables.sql), so the worker can insert it as-is.
 
 from datetime import datetime, timezone
 from typing import List, Literal, Optional

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-step local database setup for the AI module (Mac).
 # 1. Adds the DB_* settings to .env if missing (passwords are generated, not hard-coded)
-# 2. Creates the logins and the database (db/bootstrap.sql, as the Postgres admin)
+# 2. Creates the logins and the database (postgres/bootstrap.sql, as the Postgres admin)
 # 3. Creates the "ai" schema and tables with Alembic (alembic upgrade head)
 # Safe to run again: existing .env values are kept, existing logins/database are skipped,
 # and Alembic only runs migrations the database does not have yet.
@@ -15,7 +15,7 @@ cd "$(dirname "$0")"
 
 command -v psql >/dev/null || { echo "ERROR: psql not found. Run: brew install postgresql@16"; exit 1; }
 ALEMBIC=.venv/bin/alembic
-[[ -x "$ALEMBIC" ]] || { echo "ERROR: $ALEMBIC not found. Run: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"; exit 1; }
+[[ -x "$ALEMBIC" ]] || { echo "ERROR: $ALEMBIC not found. Run: python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt"; exit 1; }
 
 # ---------------------------------------------------------------------------
 # 1. Database settings in .env (added only if missing; your values are kept)
@@ -56,7 +56,7 @@ echo "Creating logins and database ..."
   -v app_user="$DB_APP_USER" -v app_password="$DB_APP_PASSWORD" \
   -v node_user="$DB_NODE_USER" -v node_password="$DB_NODE_PASSWORD" \
   -v has_node=true \
-  -f db/bootstrap.sql
+  -f postgres/bootstrap.sql
 
 if [[ "${RESET_AI_SCHEMA:-}" == "yes" ]]; then
   if [[ "$DB_HOST" != "localhost" && "$DB_HOST" != "127.0.0.1" ]]; then
@@ -70,7 +70,7 @@ fi
 
 echo "Creating schema and tables (alembic upgrade head) ..."
 # alembic/env.py reads the DB_* values from .env (or DATABASE_URL, if set).
-"$ALEMBIC" upgrade head
+(cd backend && "../$ALEMBIC" upgrade head)  # alembic.ini lives in backend/
 
 echo
 PGPASSWORD="$DB_APP_PASSWORD" "${PSQL[@]}" -U "$DB_APP_USER" -d "$DB_NAME" -c '\dt ai.*'

@@ -1,0 +1,200 @@
+# Deploys the PLATFORM to the dev EC2 server (vitalsigns-ai-backend, us-west-2):
+# the gateway (HTTPS, routes /v1, /v2, ...) and the ONE Postgres that every version shares.
+#   /opt/vitalsigns-platform  ->  Compose project "vitalsigns-platform"
+# The versions themselves are deployed by their own workflows (v1.yml on V1_main, v2.yml on v2_main, ...).
+#
+# Runs when gateway/, postgres/ or the platform compose files change on V1_main, or by hand:
+# Actions -> Deploy platform -> Run workflow (pick the branch whose gateway/ and postgres/ you want).
+#   1. Copies only gateway/, postgres/ and the platform compose files to the server.
+#   2. Writes .env from the ENV_FILE secret (DB_NAME, passwords; the same values every version uses).
+#   3. Creates the shared Docker network "vitalsigns-shared" (only once).
+#   4. FIRST TIME ONLY: removes the containers of the old all-in-one setup (/opt/vitalsigns-ai, project
+#      "vitalsigns-ai"). Its database volume "vitalsigns-ai_pgdata" is KEPT and used by the new Postgres.
+#   5. Gets the HTTPS certificate (first time only), starts gateway + Postgres + certbot, checks them.
+#
+# Postgres is only restarted when its settings change; a gateway-only change does not touch the database.
+#
+# Repository secrets (Settings -> Secrets and variables -> Actions):
+#   EC2_HOST, EC2_USER, EC2_SSH_KEY, ENV_FILE   (the same ones as the version workflows)
+
+name: Deploy platform
+
+on:
+  push:
+    branches: [V1_main]
+    paths:
+      - "gateway/**"
+      - "postgres/**"
+      - "docker-compose.platform.yml"
+      - "docker-compose.platform.aws.yml"
+      - ".github/workflows/platform.yml"
+  workflow_dispatch:
+
+# One deploy on the server at a time, platform and versions alike (they share the same group).
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PLATFORM_DIR: /opt/vitalsigns-platform
+  # The old all-in-one setup (gateway + Postgres + v1 in one Compose project), before the platform existed.
+  OLD_PROJECT: vitalsigns-ai
+  # Public domain of the API. Its DNS A record must point to the server's Elastic IP.
+  DOMAIN: ai.dev.vitals-signs.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          missing=0
+          for name in EC2_HOST EC2_USER EC2_SSH_KEY ENV_FILE; do
+            if [ -z "${!name}" ]; then echo "::error::Secret $name is not set"; missing=1; fi
+          done
+          exit $missing
+
+      - name: Set up SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -T 15 -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          echo "SSH=ssh -i $HOME/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=15" >> "$GITHUB_ENV"
+
+      - name: Prepare the server (Docker, shared network, platform folder)
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          $SSH "$TARGET" "sudo bash -s" <<SETUP
+          set -euo pipefail
+
+          # Docker Engine + Compose plugin from Docker's official apt repository (only if missing).
+          if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+            echo "Installing Docker ..."
+            apt-get update -qq
+            apt-get install -y -qq ca-certificates curl rsync
+            install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+            chmod a+r /etc/apt/keyrings/docker.asc
+            echo "deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \$(. /etc/os-release && echo \$VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+            apt-get update -qq
+            apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            systemctl enable --now docker
+          else
+            echo "Docker already installed: \$(docker --version)"
+          fi
+          command -v rsync >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq rsync; }
+
+          # The network the gateway, Postgres and every version share (only once).
+          docker network inspect vitalsigns-shared >/dev/null 2>&1 || docker network create vitalsigns-shared
+
+          mkdir -p "${PLATFORM_DIR}"
+          chown "${EC2_USER}:${EC2_USER}" "${PLATFORM_DIR}"
+          SETUP
+
+      - name: Copy the platform files to the server
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+        run: |
+          mkdir -p deploy
+          cp -r gateway postgres docker-compose.platform.yml docker-compose.platform.aws.yml deploy/
+          # --delete removes files that were deleted in the repo. .env is never touched.
+          rsync -az --delete -e "$SSH" --exclude '.env' --exclude '.DS_Store' deploy/ "$TARGET:${PLATFORM_DIR}/"
+
+      - name: Write .env on the server
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          printf '%s\n' "$ENV_FILE" | $SSH "$TARGET" "umask 077 && cat > ${PLATFORM_DIR}/.env"
+
+      - name: Remove the old all-in-one containers (first time only)
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+        run: |
+          $SSH "$TARGET" "sudo bash -s" <<OLD
+          set -euo pipefail
+          ids=\$(docker ps -aq --filter label=com.docker.compose.project=${OLD_PROJECT})
+          if [ -z "\$ids" ]; then
+            echo "No containers of the old project ${OLD_PROJECT}: nothing to do."
+            exit 0
+          fi
+          echo "Removing the containers of the old project ${OLD_PROJECT} (its volumes, including the database, are kept) ..."
+          docker rm -f \$ids
+          docker volume inspect ${OLD_PROJECT}_pgdata >/dev/null && echo "Database volume ${OLD_PROJECT}_pgdata is still there."
+          OLD
+
+      - name: Get the HTTPS certificate (first deploy only)
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+        run: |
+          # Later deploys skip this: the certbot container renews the certificate by itself.
+          $SSH "$TARGET" "sudo bash -s" <<CERT
+          set -euo pipefail
+          mkdir -p /opt/letsencrypt /opt/certbot-www
+          if [ -f /opt/letsencrypt/live/${DOMAIN}/fullchain.pem ]; then
+            echo "Certificate for ${DOMAIN} already exists."
+            exit 0
+          fi
+          echo "No certificate yet: requesting one from Let's Encrypt for ${DOMAIN} ..."
+          cd "${PLATFORM_DIR}"
+          # Let's Encrypt checks the domain on port 80, which the gateway holds. Stop it for the check.
+          docker compose -f docker-compose.platform.yml -f docker-compose.platform.aws.yml stop gateway 2>/dev/null || true
+          docker run --rm -p 80:80 -v /opt/letsencrypt:/etc/letsencrypt certbot/certbot:v2.11.0 \
+            certonly --standalone -d ${DOMAIN} --agree-tos --non-interactive --register-unsafely-without-email
+          CERT
+
+      - name: Start the platform
+        env:
+          TARGET: ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}
+        run: |
+          $SSH "$TARGET" "bash -s" <<DEPLOY
+          set -euo pipefail
+          cd "${PLATFORM_DIR}"
+          COMPOSE="sudo docker compose -f docker-compose.platform.yml -f docker-compose.platform.aws.yml"
+          \$COMPOSE config --quiet
+          \$COMPOSE up -d --remove-orphans --wait --wait-timeout 120
+          # rsync replaces changed gateway/ files with new files, but a running container still sees the old
+          # ones (single-file mounts). Recreate only the gateway (a few seconds), never Postgres.
+          \$COMPOSE up -d --no-deps --force-recreate --wait --wait-timeout 60 gateway
+          \$COMPOSE exec -T gateway nginx -t
+          \$COMPOSE ps
+          DEPLOY
+
+      - name: Check the gateway (HTTPS, TLS 1.3 only)
+        run: |
+          # The gateway answers 404 JSON for an unknown path: that proves nginx + the certificate work,
+          # even before any version is running.
+          code=$(curl -sS --max-time 10 --tlsv1.3 -o /dev/null -w '%{http_code}' "https://$DOMAIN/platform-check")
+          [ "$code" = "404" ] || { echo "::error::https://$DOMAIN/platform-check answered $code, expected 404"; exit 1; }
+          echo "Gateway over TLS 1.3: OK"
+          # TLS 1.2 must be refused (Spec: TLS 1.3 in transit).
+          if curl -sS --max-time 10 --tlsv1.2 --tls-max 1.2 -o /dev/null "https://$DOMAIN/health" 2>/dev/null; then
+            echo "::error::$DOMAIN still accepts TLS 1.2"
+            exit 1
+          fi
+          echo "TLS 1.2 refused: OK"
+          # Plain HTTP must redirect to HTTPS.
+          code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://$DOMAIN/health")
+          [ "$code" = "301" ] || { echo "::error::http://$DOMAIN answered $code, expected 301"; exit 1; }
+          echo "HTTP redirects to HTTPS: OK"
+
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

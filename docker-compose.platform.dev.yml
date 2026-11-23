@@ -1,0 +1,11 @@
+# Development only: makes Swagger (/docs) of the default version reachable through the gateway, like /health.
+# Never use this file on a server: it shows every endpoint to anyone who can reach the gateway.
+#
+# Start: docker compose -f docker-compose.platform.yml -f docker-compose.platform.dev.yml up -d
+# Then:  http://localhost/docs
+# Back to the normal setup (/docs returns 404): docker compose -f docker-compose.platform.yml up -d
+
+services:
+  gateway:
+    volumes:
+      - ./gateway/dev-docs.conf:/etc/nginx/dev/docs.conf:ro

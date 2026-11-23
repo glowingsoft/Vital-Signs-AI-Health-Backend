@@ -1,7 +1,7 @@
 #!/bin/bash
 # Runs once, the first time the Postgres container starts with an empty data volume.
-# Creates the logins and the database with the same db/bootstrap.sql as setup_db.sh.
-# The "ai" schema and tables are created afterwards by the "migrate" service (alembic upgrade head).
+# Creates the logins and the database with the same postgres/bootstrap.sql as setup_db.sh.
+# The "ai" schema and tables are created afterwards by the newest version's "migrate" container (alembic upgrade head).
 
 set -euo pipefail
 

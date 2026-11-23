@@ -6,10 +6,5 @@ __pycache__/
 .pytest_cache/
 tests/
 python_auth/test_auth.py
-asserts/
-db/
-old_sql/
-docker/
-gateway/
 *.md
 failed_enqueue.jsonl*

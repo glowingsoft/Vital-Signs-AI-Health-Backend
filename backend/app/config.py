@@ -4,7 +4,9 @@
 import os
 from pathlib import Path
 
-ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+# backend/.env if it exists, else the repo root .env (the one Docker Compose uses).
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+ENV_FILE = BACKEND_DIR / ".env" if (BACKEND_DIR / ".env").exists() else BACKEND_DIR.parent / ".env"
 
 
 def load_env_file(path: Path) -> None:
