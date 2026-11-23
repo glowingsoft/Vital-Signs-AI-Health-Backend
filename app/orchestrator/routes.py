@@ -13,7 +13,12 @@ from fastapi import APIRouter, HTTPException
 
 from app import config
 from app.orchestrator.build_job import build_save_assessment_job
+<<<<<<< Updated upstream
 from app.orchestrator.consolidate import consolidate
+=======
+from app.orchestrator.consent_check import check_consent
+from app.orchestrator.consolidate import consolidate, sources_for_app
+>>>>>>> Stashed changes
 from app.orchestrator.fda_filter import apply_fda_rules
 from app.shared.contracts import AssessRequest, AssessResponse, MotorInput, MotorOutput
 from app.shared.queue import enqueue
@@ -26,14 +31,25 @@ router = APIRouter(tags=["orchestrator"])
 def build_motor_inputs(request: AssessRequest) -> Dict[str, MotorInput]:
     """Turn the app's request into one MotorInput per needed motor. Missing parts = motor not called."""
     now = datetime.now(timezone.utc)
+    country = request.context.country if request.context else None  # picks the trusted medical sources
     inputs = {}
     if request.symptoms:
         inputs["triage"] = MotorInput(
+<<<<<<< Updated upstream
             user_id=request.user_id, timestamp=now, input_type="text", data={"message": request.symptoms}
         )
     if request.image:
         inputs["visual"] = MotorInput(
             user_id=request.user_id, timestamp=now, input_type="image", data={"image": request.image}
+=======
+            user_id=user_id, timestamp=now, input_type="text", data={"message": request.symptoms},
+            country=country,
+        )
+    if request.image:
+        inputs["visual"] = MotorInput(
+            user_id=user_id, timestamp=now, input_type="image", data={"image": request.image},
+            country=country,
+>>>>>>> Stashed changes
         )
     if request.vitals:
         inputs["vitals"] = MotorInput(
@@ -42,13 +58,16 @@ def build_motor_inputs(request: AssessRequest) -> Dict[str, MotorInput]:
             input_type="vitals",
             # exclude_none = only send the readings the user actually has; mode="json" = dates become strings
             data=request.vitals.model_dump(mode="json", exclude_none=True),
+            country=country,
         )
     return inputs
 
 
 def make_http_client() -> httpx.AsyncClient:
     # Kept in its own function so tests can swap in a client that talks to the app directly.
-    return httpx.AsyncClient()
+    # httpx's own default timeout is 5 s, shorter than the visual limit: give it a little more than the slowest
+    # motor, so each motor's limit is decided by call_motor() (config.MOTOR_TIMEOUTS), not by httpx.
+    return httpx.AsyncClient(timeout=config.longest_motor_timeout_seconds() + 1)
 
 
 def elapsed_ms(started: float) -> int:
@@ -62,11 +81,11 @@ async def call_motor(
     url = f"{config.MOTOR_URLS[name]}/motor/{name}/analyze"
     started = time.monotonic()  # monotonic = a clock that never jumps, made for measuring durations
     try:
-        # wait_for = give up after MOTOR_TIMEOUT_SECONDS for the WHOLE call (connect + answer).
+        # wait_for = give up after this motor's limit (config.MOTOR_TIMEOUTS) for the WHOLE call (connect + answer).
         response = await asyncio.wait_for(
             # mode="json" turns the datetime into a string so it can be sent as JSON.
             client.post(url, json=motor_input.model_dump(mode="json")),
-            timeout=config.MOTOR_TIMEOUT_SECONDS,
+            timeout=config.motor_timeout_seconds(name),
         )
         response.raise_for_status()  # treat 4xx/5xx answers as failures
         answer = MotorOutput(**response.json())  # also validates that the motor kept the contract
@@ -113,5 +132,8 @@ async def assess(request: AssessRequest) -> dict:
     job = build_save_assessment_job(prediction_id, request, response, results, latencies, elapsed_ms(started))
     await enqueue(config.STREAM_SAVE_ASSESSMENT, job)
 
+    # The source of each motor's answer, for the patient: label and library link only, never the full citation.
+    # Added after the FDA filter and the save job, so neither changes (the label is not part of "explanation").
+    response["sources"] = sources_for_app(results, request.context.country if request.context else None)
     response["prediction_id"] = prediction_id
     return response

@@ -1,0 +1,33 @@
+{
+  "about": "Synthetic triage test cases for scripts/latency_test.py and scripts/benchmark_models.py. Made up for testing: no real patient data. expected_risk is a draft label written for the benchmark; it must be reviewed by the client's medical advisor before the results are used as clinical evidence. The red-flag cases follow the rule in app/shared/prompts.py (chest pain, difficulty breathing, loss of consciousness, seizure and vomiting blood are always critical).",
+  "version": "2026-11-18",
+  "cases": [
+    {"id": "T01", "country": "US", "expected_risk": "low", "message": "I have had a mild runny nose and sneezing since yesterday. No fever, eating and sleeping normally."},
+    {"id": "T02", "country": "US", "expected_risk": "low", "message": "Small paper cut on my finger this morning. It stopped bleeding quickly and looks clean."},
+    {"id": "T03", "country": "US", "expected_risk": "low", "message": "Slight muscle soreness in my legs after a long walk yesterday. No swelling, I can walk fine."},
+    {"id": "T04", "country": "MX", "expected_risk": "low", "message": "Tengo un poco de congestión nasal desde ayer, sin fiebre y me siento bien en general."},
+    {"id": "T05", "country": "MX", "expected_risk": "low", "message": "Me duele un poco la cabeza después de un día largo de trabajo frente a la computadora. Ya casi se me quitó."},
+    {"id": "T06", "country": "US", "expected_risk": "low", "message": "I feel a bit tired today after sleeping badly last night. Otherwise I feel normal."},
+
+    {"id": "T07", "country": "US", "expected_risk": "medium", "message": "Fever of 38.5 C for two days with sore throat and body aches. I am drinking fluids."},
+    {"id": "T08", "country": "US", "expected_risk": "medium", "message": "Burning when I urinate and needing to go often since yesterday. No fever, no back pain."},
+    {"id": "T09", "country": "US", "expected_risk": "medium", "message": "Ankle twisted while running an hour ago. It is swollen and painful but I can put some weight on it."},
+    {"id": "T10", "country": "MX", "expected_risk": "medium", "message": "Tengo diarrea desde hace dos días, unas cinco veces al día, sin sangre. Puedo tomar líquidos."},
+    {"id": "T11", "country": "MX", "expected_risk": "medium", "message": "Tos con flema desde hace una semana y un poco de fiebre por las noches."},
+    {"id": "T12", "country": "US", "expected_risk": "medium", "message": "Rash on my arms that itches, started after I used a new soap two days ago. No trouble breathing."},
+
+    {"id": "T13", "country": "US", "expected_risk": "high", "message": "Fever of 39.5 C for three days that does not go down with medicine, and I feel very weak."},
+    {"id": "T14", "country": "US", "expected_risk": "high", "message": "Severe pain in the lower right side of my belly for 12 hours, getting worse, with nausea."},
+    {"id": "T15", "country": "US", "expected_risk": "high", "message": "Deep cut on my hand from a kitchen knife, still bleeding through the bandage after 20 minutes of pressure."},
+    {"id": "T16", "country": "MX", "expected_risk": "high", "message": "Soy diabético y mi glucosa ha estado arriba de 350 todo el día, tengo mucha sed y orino mucho."},
+    {"id": "T17", "country": "MX", "expected_risk": "high", "message": "Tengo una herida en el pie que está roja, caliente, con pus y huele mal desde hace tres días. Soy diabético."},
+    {"id": "T18", "country": "US", "expected_risk": "high", "message": "Vomiting everything I drink since this morning, very dizzy when I stand up, and I have not urinated in 10 hours."},
+
+    {"id": "T19", "country": "US", "expected_risk": "critical", "message": "Crushing chest pain spreading to my left arm for 20 minutes, sweating and nauseous."},
+    {"id": "T20", "country": "US", "expected_risk": "critical", "message": "Sudden difficulty breathing, I can only say a few words at a time and my lips look blue."},
+    {"id": "T21", "country": "US", "expected_risk": "critical", "message": "My father suddenly cannot move the right side of his face and arm and his speech is slurred, it started 15 minutes ago."},
+    {"id": "T22", "country": "MX", "expected_risk": "critical", "message": "Tengo dolor en el pecho muy fuerte y me falta el aire desde hace media hora."},
+    {"id": "T23", "country": "MX", "expected_risk": "critical", "message": "Mi hijo tuvo una convulsión hace unos minutos y ahora está muy somnoliento y no responde bien."},
+    {"id": "T24", "country": "US", "expected_risk": "critical", "message": "I vomited blood twice in the last hour and I feel faint."}
+  ]
+}

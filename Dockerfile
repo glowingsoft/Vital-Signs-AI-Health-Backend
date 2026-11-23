@@ -20,6 +20,10 @@ COPY alembic.ini .
 COPY alembic ./alembic
 COPY collection ./collection
 
+# Make the code readable by every user, whatever permissions the files had on the build machine
+# (a file saved as owner-only would otherwise be unreadable to appuser and crash the container).
+RUN chmod -R a+rX /app
+
 # Run as a normal user, not root. /data holds failed_enqueue.jsonl (shared by the API and the worker).
 RUN useradd --create-home appuser && mkdir /data && chown appuser /data
 USER appuser

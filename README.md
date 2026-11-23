@@ -392,10 +392,16 @@ The base contract comes from the developer spec. Fields marked *proposed* and th
   "explanation": "string",
   "disclaimer_id": "id of the disclaimer version shown",
   "finding_type": "optional string",
-  "evidence_level": "optional string",
-  "reference": "optional traceable, citable source"
+  "evidence_level": "from the source library, or pending_medical_review",
+  "reference": "full citation from the source library, or empty",
+  "source_id": "library id, e.g. US-AHA-HBP-2025, only when it matched",
+  "source_status": "matched | pending_medical_review",
+  "source_label": "short patient line, e.g. according to CDC guidance",
+  "source_link": "the library's verified link"
 }
 ```
+
+The model never writes `reference` itself. It only picks a `source_id` from the trusted list for the patient's country, and the backend checks it (see [Trusted medical sources](#trusted-medical-sources)).
 
 Proposed internal fields, which are stored but not shown to the user: `model_id`, `model_version`, `route` (default, escalation or fallback), `input_tokens`, `output_tokens` and `latency_ms`.
 
@@ -414,16 +420,34 @@ Proposed internal fields, which are stored but not shown to the user: `model_id`
   "risk_level": "high",
   "confidence_score": 0.81,
   "explanation": "Your answers suggest this is worth reviewing with a healthcare professional.",
-  "disclaimer_id": "disc-v1",
-  "disclaimer_text": "This result is not a diagnosis. Always consult your doctor.",
-  "finding_type": "…",
-  "evidence_level": "…",
-  "reference": "…",
-  "motors": ["triage", "vitals"]
+  "disclaimer_id": "disc_v1",
+  "disclaimer": "This result is not a diagnosis. Always consult your doctor.",
+  "motors_used": ["triage", "vitals"],
+  "motors_failed": [],
+  "sources": [
+    {
+      "motor": "triage",
+      "status": "matched",
+      "label": "according to American Heart Association guidelines",
+      "link": "https://doi.org/10.1161/CIR.0000000000001029"
+    },
+    {
+      "motor": "vitals",
+      "status": "pending_medical_review",
+      "label": "Pending medical review",
+      "link": null
+    }
+  ],
+  "prediction_id": "2cef99ab-2cda-44c0-958a-d1354a7f5b68"
 }
 ```
 
-`risk_level` is the highest risk level among the motors that were called. TODO: define how the other fields are merged when several motors respond.
+- `risk_level` is the highest risk level among the motors that answered; `confidence_score` is that motor's; `explanation` joins every motor's explanation, most serious first.
+- `sources` has one entry per motor in `motors_used`, in the same order (a failed motor has none):
+  - `status: "matched"`: the AI's source was found in the trusted library. `label` is the library's `patient_label`, exactly as stored in `ai.medical_sources` (e.g. "according to American Heart Association guidelines", "según las guías de la OPS"), and `link` is the library's verified link.
+  - `status: "pending_medical_review"`: no matched source, or nothing was assessed (e.g. `ai_unavailable`, vitals `data_saved`). `label` is "Pending medical review" (US or unknown country) or "Pendiente de revisión médica" (MX), from `context.country`, and `link` is `null`. The texts live in `app/medical_sources/constants.py` (`PENDING_REVIEW_LABELS`).
+- The full citation (`reference`), `source_id`, `finding_type` and `evidence_level` are never sent to the app: they are saved in `ai.motor_results` for doctors. The orchestrator never builds or changes a link.
+- The label is not part of `explanation`, so the FDA wording filter does not touch it. On a `critical` result the app shows SOS and Call 911 first and the source after it.
 
 ---
 
@@ -449,6 +473,7 @@ Each record also stores `timestamp` (UTC), pseudonymous `user_id`, vitals, `labe
 - Consent records
 - AI usage and cost
 - Capture streams (voice and passive data)
+- Critical alerts (`ai.critical_alerts`): every full-screen critical alert shown on the phone, with when it was shown, the trigger (`trigger_vital` named as in `ai.vitals_readings`, `trigger_value` as shown, `trigger_source` `on_device` or `ai_assessment`), what the user did (`sos`, `call_911`, `dismissed`, `none`) and the time to dismiss (Spec, Critical alert (SOS)). Written by the Node backend (`POST /sos/alerts`); offline alerts arrive in a batch on sync, and `UNIQUE (user_id, client_alert_id)` keeps a re-sent alert from being saved twice. Append-only.
 
 TODO: finalise the table list in the schema documentation.
 
@@ -630,7 +655,11 @@ gantt
 
 ### Getting started (Milestone 1, step 1: stub service)
 
+<<<<<<< Updated upstream
 **What this step does.** It sets up the skeleton of the AI service. The orchestrator (`POST /ai/assess`) checks which inputs the request contains (symptoms, image, vitals). It calls only the motors it needs, all at the same time, and gives each one 2.5 seconds. It keeps the highest risk level, applies the FDA wording rules and returns one answer. The three motors are **stubs**: they use simple rules (for example, `heart_rate > 120` gives `high`) instead of AI. After answering, the orchestrator puts the result on a **Redis queue**, and a separate **worker** saves it to Postgres (see [Queue and worker](#queue-and-worker)). Everything can run on your Mac directly or in Docker (see [Run with Docker](#run-with-docker)). This step has no auth or AWS yet.
+=======
+**What this step does.** It sets up the skeleton of the AI service. The orchestrator (`POST /ai/assess`) checks which inputs the request contains (symptoms, image, vitals). It calls only the motors it needs, all at the same time, and gives each one its own time limit (triage 3 s, visual 8 s, vitals 3 s). It keeps the highest risk level, applies the FDA wording rules and returns one answer. The three motors answer with simple rules (for example, `heart_rate > 120` gives `high`). Each motor already picks its AI model from one central routing configuration (`app/configurations/`) and calls it through one Bedrock function, but this stays off (`USE_BEDROCK=false`) until M2 and the signed BAA, so nothing calls AWS and every cost row is 0. After answering, the orchestrator puts the result on a **Redis queue**, and a separate **worker** saves it to Postgres (see [Queue and worker](#queue-and-worker)). Everything can run on your Mac directly or in Docker (see [Run with Docker](#run-with-docker)). Every request needs a NestJS access token (see below).
+>>>>>>> Stashed changes
 
 **Current files:**
 
@@ -642,7 +671,17 @@ app/orchestrator/routes.py    POST /ai/assess: pick motors, call them in paralle
 app/orchestrator/consolidate.py   combine motor answers (highest risk wins)
 app/orchestrator/fda_filter.py    banned phrases + disclaimer
 app/motors/<name>/routes.py   POST /motor/<name>/analyze  (triage, visual, vitals)
+<<<<<<< Updated upstream
 app/motors/<name>/logic.py    the stub rules for that motor
+=======
+app/motors/<name>/logic.py    the rules for that motor; calls model.py and copies its result into MotorOutput
+app/motors/<name>/model.py    get_model() picks the routed model, run_model() calls it (stub when USE_BEDROCK=false)
+app/motors/runner.py          shared by the motors: try the model, then each fallback, within the motor's time limit
+app/configurations/models.py  every model: Bedrock ID, price per 1M tokens, image support, version
+app/configurations/routing.py default / escalation / fallback models and max output tokens per motor (ROUTING_VERSION)
+app/configurations/pricing.py cost_usd(): tokens × price, saved to ai.ai_usage
+app/shared/bedrock.py         the one Bedrock caller: converse() with a hard timeout
+>>>>>>> Stashed changes
 app/orchestrator/build_job.py turns one /ai/assess call into a SaveAssessmentJob (the rows to save)
 app/shared/jobs.py            Pydantic models of the queued jobs; one *Row model per database table
 app/shared/queue.py           enqueue(): XADD to a Redis Stream, or write to failed_enqueue.jsonl if Redis is down
@@ -651,6 +690,8 @@ app/shared/db.py              the shared Postgres connection (SQLAlchemy async +
 app/worker/main.py            the worker loop (python -m app.worker): read jobs, save, ACK, retry, dead-letter
 app/worker/handlers.py        one transaction per job
 app/worker/repository.py      the INSERT statements, one function per table
+app/cron_jobs/main.py         runs the scheduled jobs (python -m app.cron_jobs.main [--job name]); registry JOBS
+app/cron_jobs/source_check/   daily link check of the active medical sources (check_links.py)
 Dockerfile                    one image for the API (any SERVICE) and the worker
 docker-compose.yml            local stack: api + worker + postgres + redis (+ 4-container "split" profile)
 docker/postgres-init.sh       creates the Docker Postgres logins and database with db/bootstrap.sql
@@ -736,7 +777,7 @@ Example answer (request 3):
   ▼
  orchestrator/routes.py
   │  build_motor_inputs(): one MotorInput per input that is present
-  │  asyncio.gather(): call the motors in parallel over HTTP (httpx), 2.5 s each
+  │  asyncio.gather(): call the motors in parallel over HTTP (httpx), each with its own limit (3 / 8 / 3 s)
   │
   ├──► POST /motor/triage/analyze  ─► triage/logic.py  ─┐
   ├──► POST /motor/visual/analyze  ─► visual/logic.py  ─┤  MotorOutput
@@ -860,6 +901,79 @@ alembic downgrade -1
 
 Useful too: `alembic current` (version of this database), `alembic history` (all migrations), `alembic check` (fails if the models and the database differ).
 
+### Trusted medical sources
+
+The closed list of sources the AI may cite lives in the table `ai.medical_sources`. All its code is in `app/medical_sources/`:
+
+| File | What it does |
+|---|---|
+| `controller.py` | Admin API, `/ai/admin/medical-sources` |
+| `service.py` | The rules: validation, status changes, client approval, audit log |
+| `repository.py` | The SQL on `ai.medical_sources` and `ai.audit_log` |
+| `schemas.py` | Request and response bodies |
+| `constants.py` | Allowed countries, statuses, topics and evidence levels |
+| `library.py` | What the motors use: the source list in the prompt and the check after the answer |
+| `seed.py` | First load from `db/medical_sources/medical_sources.json` |
+| `../cron_jobs/source_check/check_links.py` | Daily link check of the active sources (below) |
+
+**First load only** (after `alembic upgrade head`). It adds the seed file's sources that are not in the table yet and never changes an existing row:
+
+```bash
+python -m scripts.load_medical_sources --check   # only check the file
+python -m scripts.load_medical_sources
+```
+
+**After that, sources are added and changed only through the admin API.** Every endpoint needs an **Admin** access token (401 without a token, 403 for any other role):
+
+| Method and path | What it does |
+|---|---|
+| `GET /ai/admin/medical-sources?country=&status=&motor=&topic=` | List sources |
+| `GET /ai/admin/medical-sources/topics` | The allowed topic keys |
+| `GET /ai/admin/medical-sources/{id}` | One source |
+| `POST /ai/admin/medical-sources` | Add a source. It is saved as `draft`: the AI cannot cite it yet |
+| `PATCH /ai/admin/medical-sources/{id}` | Change fields. On an `active` source, a change the AI or the patient would see needs the client's approval in `"approval"` (409 otherwise) |
+| `POST /ai/admin/medical-sources/{id}/approve` | The client's written approval (`approved_by`, `approval_note`, `approved_at`): the source becomes `active` |
+| `POST /ai/admin/medical-sources/{id}/deactivate` | `reason` required: the AI stops citing it. There is no delete, so past results keep their source |
+
+Every change writes one `ai.audit_log` row (`resource_type` `medical_source`: who, why, before and after) in the same transaction. The database refuses an `active` source without its approval recorded. The motors read the table again within `MEDICAL_SOURCES_CACHE_SECONDS` (5 minutes).
+
+**How the motors use it** (`app/medical_sources/library.py`, prompt in `app/shared/prompts.py`):
+
+1. The system prompt lists only the sources for the patient's country (`context.country`: US or MX) and the motor.
+2. The model answers with `source_id`: one id from that list, or `none`.
+3. After the answer, the backend checks the id. Only an id in the list counts; the backend attaches the citation and link itself.
+4. No match: no reference, and `source_status` / `evidence_level` are `pending_medical_review`.
+
+`source_id` and `source_status` are saved in `ai.motor_results`. Only sources whose `status` is in `MEDICAL_SOURCE_STATUSES` (default `active`) are given to the model, so until sources are approved every result is `pending_medical_review`; for a demo, set `MEDICAL_SOURCE_STATUSES=active,draft,proposed_addition`.
+
+#### Daily link check (cron job)
+
+`app/cron_jobs/source_check/check_links.py` checks the link of every `active` source once a day:
+
+| HTTP result (GET, redirects followed, 15 s, browser User-Agent, at most 3 links at a time) | What is written |
+|---|---|
+| 200–399 | `link_status = ok` |
+| 404, 410, any 5xx, timeout, DNS, connection or SSL error: **1st failure** | `link_status = broken`; the source stays `active` |
+| The same, when `link_status` was already `broken`: **2nd failure in a row** | `status = broken`: the AI stops citing it and results fall back to "pending medical review" |
+| 401, 403, 429 or another code (the publisher blocks automated checks) | Nothing: counted as `blocked` in the log and the summary |
+
+Every checked source also gets `link_checked_at = today` and `updated_by = system:source_check`. No other field changes. The page itself is never read or stored, only the HTTP status. When `link_status` or `status` changes, one `ai.audit_log` row (`actor_id` `system:source_check`, `actor_role` `system`, with the changed fields in `before`/`after`) is written in the same transaction. The job never sets a source back to `active`: an admin fixes the link and approves it again (`POST /approve`, with the client's approval).
+
+Sources set to `broken` are logged as a WARNING and listed by `GET /ai/admin/medical-sources?status=broken`. If `LINK_ALERT_EMAILS` is set, one email per run lists them, sent through AWS SES from `LINK_ALERT_FROM`. The EC2 role needs `ses:SendEmail`, and the sender must be verified in SES. While the SES account is in sandbox mode, the recipients must be verified too.
+
+```bash
+python -m app.cron_jobs.main                     # every cron job
+python -m app.cron_jobs.main --job source_check  # only the link check
+```
+
+The jobs run one after another; a failing job is logged and the others still run. The exit code is 1 when any job failed, including a result that could not be saved or an alert email that could not be sent. New jobs are added with one line in `JOBS` (`app/cron_jobs/main.py`).
+
+**Schedule on the server.** Add this to the EC2 crontab (`crontab -e`) to run it daily at 03:00 Pakistan time (22:00 UTC; EC2 clocks are UTC). It uses the deployed image and `.env`, through the `migrate` service:
+
+```cron
+0 22 * * * cd /path/to/ai-backend && docker compose -f docker-compose.yml -f docker-compose.aws.yml run --rm --no-deps migrate python -m app.cron_jobs.main >> /var/log/vitalsigns-cron.log 2>&1
+```
+
 The first migration (`initial schema`) recreates the original schema exactly, including the append-only triggers, the `disc_v1` disclaimer and the Node grants. Databases that already existed were marked as up to date with `alembic stamp head` instead of running it.
 
 ### Run with Docker
@@ -914,8 +1028,13 @@ To use TablePlus, connect to host `localhost`, port **5433**, with the `DB_*` us
 - sends `/ai/*` and `/health` to the orchestrator and returns **404 for every other path**, so `/motor/*` and `/docs` are not reachable from outside (use a local `uvicorn` for `/docs`);
 - serves its own 404 from `gateway/src/`: a designed page for browsers, JSON (`{"detail": "Not Found", "request_id": ...}`) for apps and curl;
 - rate limits each client IP to 10 requests/second (burst 20) and returns **429** above that;
+<<<<<<< Updated upstream
 - accepts bodies up to 10 MB, passes `X-Real-IP` / `X-Forwarded-For`, and waits 5 s for the orchestrator (motor timeout 2.5 s);
 - has a commented placeholder in `location /ai/` where the JWT check will go.
+=======
+- accepts bodies up to 10 MB, passes `X-Real-IP` / `X-Forwarded-For`, and waits 12 s for the orchestrator (slowest motor limit: visual, 8 s);
+- passes the `Authorization` header through unchanged; the token itself is checked by the orchestrator (`python_auth/`). The commented placeholder in `location /ai/` is for an optional extra check at the gateway.
+>>>>>>> Stashed changes
 
 ```bash
 curl http://localhost/health                                   # 200, through the gateway
@@ -933,9 +1052,146 @@ docker compose up -d                                                    # back t
 
 **Versions.** `requirements.txt` pins exact versions, so the Mac `.venv` and the image run the same code. After changing a version, run `pip install -r requirements-dev.txt`, `pytest`, and `docker compose up --build -d`.
 
+<<<<<<< Updated upstream
 > Later milestones add JWT auth (at the gateway) and Bedrock. Never change the database schema by hand or from Node: use an Alembic migration.
+=======
+### Node backend database access (server)
+
+The NestJS backend reads and writes some `ai` tables directly, starting with `ai.consents` and `ai.disclaimers`. It connects to the AI server's Postgres over the **private AWS network only**:
+
+```text
+NestJS EC2 ──(VPC, TLS 1.3, node_backend)──► AI EC2 <private IP>:5432 ──► postgres container
+internet ───────────────────────────────────► <public IP>:5432  ✗ closed (security group)
+```
+
+- **Port.** `docker-compose.aws.yml` publishes Postgres on `PG_PRIVATE_BIND_IP:5432` only (never `0.0.0.0`, never in the local `docker-compose.yml`). AWS forwards Elastic IP traffic to the private IP, so **the security group is what keeps 5432 off the internet**: inbound TCP 5432, source = the backend server's security group only.
+- **SSL.** Postgres runs with `ssl=on` and `ssl_min_protocol_version=TLSv1.3`, using a self-signed certificate from `docker/postgres-ssl.sh` in `/opt/postgres-ssl` (outside the app folder and git; the key is owned by uid 999, mode 600). The deploy workflow creates it on the first deploy.
+- **Who may connect** (`docker/postgres/pg_hba.conf`): from outside Docker only `node_backend`, only over SSL (`hostssl`); the AI containers on the Docker network as before; everything else is rejected.
+- **The login.** Migration `7635008277b8` creates `node_backend` with `CONNECT` and `USAGE` on schema `ai`. Tables added later are not granted automatically: each grant comes from a migration. No UPDATE, DELETE, TRUNCATE or ownership anywhere; the append-only tables' triggers block UPDATE, DELETE and TRUNCATE for every login. `scripts/verify_m1.py` checks that `node_backend` has exactly these grants:
+
+  | Table | Grant | Migration | Why |
+  |---|---|---|---|
+  | `ai.consents` | `SELECT, INSERT` | `7635008277b8` | consent records |
+  | `ai.disclaimers` | `SELECT` | `7635008277b8` | disclaimer text |
+  | `ai.assessments` | `SELECT` | `b7d2e4f10a35` | review endpoints, assessment history |
+  | `ai.reviews` | `SELECT, INSERT` | `b7d2e4f10a35` | patient responses, doctor and supervisor reviews |
+  | `ai.audit_log` | `INSERT` only | `b7d2e4f10a35` | clinical audit trail and "view" rows; Node never reads it |
+  | `ai.vitals_readings` | `INSERT` | `c4e8a1f2b903` | `POST /offline-vitals` |
+  | `ai.vitals_readings` | `SELECT` | `7bcdf5cb3509` | doctor and supervisor see readings, labels and the 7/30-day trends (replaces the column-only `SELECT (user_id, client_reading_id)` of `c4e8a1f2b903`) |
+  | `ai.medical_sources` | `SELECT` | `d5a7c3e91f42` | full citation for doctors |
+  | `ai.critical_alerts` | `INSERT` | `3b560c27ccd3` | `POST /sos/alerts` |
+  | `ai.critical_alerts` | `SELECT` | `7bcdf5cb3509` | doctor and supervisor see SOS alerts: when, trigger, action, time to dismiss (replaces the column-only `SELECT (user_id, client_alert_id)` of `3b560c27ccd3`) |
+  | `ai.motor_results` | `SELECT` | `7bcdf5cb3509` | doctor sees each AI service's answer and source: `finding_type`, `evidence_level`, `reference`, `source_id`, `source_status`, `model_name` |
+  | `ai.ai_usage` | nothing | | internal cost data, not patient care |
+
+  The database only allows the read. The Node backend still decides **who may see which patient**: a doctor only their own patients (`PatientAccessService`), a supervisor only their doctors' patients. Every view of health data writes an `ai.audit_log` row (`view`, with a reason).
+
+**NestJS `.env`** (the `pg` package):
+
+| Key | Value |
+|---|---|
+| `DB_HOST` | AI server's **private** IP (the same as its `PG_PRIVATE_BIND_IP`) |
+| `DB_PORT` | `5432` |
+| `DB_NAME` | the AI server's `DB_NAME` |
+| `DB_NODE_USER` | `node_backend` |
+| `DB_NODE_PASSWORD` | the AI server's `NODE_BACKEND_PASSWORD` |
+| `DB_SSL` | `true` |
+| `DB_SSL_CA` | path to a copy of `/opt/postgres-ssl/server.crt` |
+
+```js
+new Pool({ host, port, database, user, password,
+  ssl: { ca: fs.readFileSync(process.env.DB_SSL_CA), rejectUnauthorized: true } });
+```
+
+The certificate contains the private IP, so the host name check passes when `DB_HOST` is that IP.
+
+**AI server `.env`** (also in the `ENV_FILE` secret, which every deploy writes to the server): `PG_PRIVATE_BIND_IP` (EC2 → Private IPv4 address) and `NODE_BACKEND_PASSWORD` (`openssl rand -hex 24`). The `migrate` container also needs the Postgres admin password, which it takes from `DB_ADMIN_PASSWORD`, or `DB_APP_PASSWORD` when that is empty (the same value the postgres container was first started with).
+
+**Rotate the password** (no restart):
+
+```bash
+cd /opt/vitalsigns-ai
+sudo docker compose -f docker-compose.yml -f docker-compose.aws.yml exec postgres \
+  psql -U postgres -c '\password node_backend'          # asks for the new password; nothing in shell history
+```
+
+Then put the new value in the backend's `DB_NODE_PASSWORD` (restart it) and in `NODE_BACKEND_PASSWORD` in the `ENV_FILE` secret (used if the database is ever rebuilt).
+
+**Rotate the certificate** (before it expires; `openssl x509 -in /opt/postgres-ssl/server.crt -noout -enddate`):
+
+```bash
+cd /opt/vitalsigns-ai
+FORCE=yes sudo bash docker/postgres-ssl.sh <private-ip>
+sudo docker compose -f docker-compose.yml -f docker-compose.aws.yml exec postgres psql -U postgres -c 'SELECT pg_reload_conf()'
+```
+
+Postgres picks up the new files on reload, without a restart. Copy the new `server.crt` to the backend server and restart it. New connections from the backend are refused until it has the new certificate.
+
+### Milestone 1 check (`scripts/verify_m1.py`)
+
+One command checks every Milestone 1 deliverable against the **running** service and prints PASS / FAIL / WARN / SKIP for each item. It exits with 1 when anything fails.
+
+| Section | What it checks |
+|---|---|
+| 1. Gateway and orchestrator | `/health` through the gateway (Redis and Postgres OK); `/motor/*`, `/docs` and `/openapi.json` answer 404; no nginx version in headers |
+| 2. REST endpoints and data contract | `POST /ai/assess` with symptoms, vitals, image and all three: HTTP 200, risk level, confidence, explanation, disclaimer ID, prediction ID, right motors called, highest risk wins; 400 for an empty request, 422 for vitals without country |
+| 3. Security | TLS 1.3 works, TLS 1.2 refused, certificate valid (days left), HTTP redirects to HTTPS, HSTS; 401 without / with an invalid / with a refresh token; 403 for Doctor, Developer and Guest; ports 8000, 5432 and 6379 closed from outside |
+| 4. Queue and worker | Redis streams and the worker group exist, a worker is connected, no dead-letter jobs, no jobs left in the Redis-down file |
+| 5. Alembic schema | Database at the latest migration; all 8 tables; the 3 labels; label source, model version, state, country and device columns; disclaimer `disc_v1`; the section 2 requests saved to `assessments`, `motor_results`, `ai_usage` and `vitals_readings`; audit log row with a reason; audit log refuses UPDATE; append-only triggers |
+| 6. Documents | Schema documentation, labeling estimate and AI cost estimate in `docs/`; no Word temp files (skipped on the server, where `docs/` is not deployed) |
+| 7. AI cost and routing | Routing for all three motors, US-only model IDs, rate sheet matches the proposal (Haiku conversation = USD 0.0034), Bedrock on/off |
+| 8. Rate limit | 60 requests at once get some 429 answers (run last; `--skip-rate-limit` to leave it out) |
+
+```bash
+# On the server: every check (runs inside the orchestrator container, so it reaches Postgres and Redis)
+cd /opt/vitalsigns-ai
+sudo docker compose -f docker-compose.yml -f docker-compose.aws.yml exec orchestrator python -m scripts.verify_m1
+
+# On your Mac, local Docker (http://localhost, no HTTPS)
+python -m scripts.verify_m1 --base-url http://localhost --skip-tls
+
+# On your Mac, against the server, without the database and queue (needs the server's JWT_SECRET)
+JWT_SECRET=... python -m scripts.verify_m1 --skip-db
+```
+
+- The test tokens are signed with `JWT_SECRET`, like the NestJS tokens, for the fake patient `0000000000000000000000f1`. Each run saves 4 assessments for that user. The tables are append-only, so filter these rows out of reports with `user_id <> '0000000000000000000000f1'`.
+- AES-256 at rest cannot be seen from inside the server, so it shows as SKIP: check EC2 → Volumes → Encrypted = Yes.
+- With `docker-compose.dev.yml` (Swagger on), the `/docs` check fails on purpose.
+
+> Later milestones add Bedrock and the endpoints for the other roles. Never change the database schema by hand or from Node: use an Alembic migration.
+>>>>>>> Stashed changes
 
 ---
+
+### Milestone 2 evidence: latency and model benchmark
+
+Two scripts produce the test evidence Milestone 2 needs (Proposal, Week 3 and "AI model routing and cost"). Both use only the synthetic cases in `scripts/m2/` (no patient data), call Amazon Bedrock, and write a report to `reports/<name>-<time>.json` and `.md`.
+
+**Latency** (`scripts/latency_test.py`): p50 / p95 / max per motor against the spec targets: triage p95 under 3 s, vitals alert p95 under 1 s. The vitals explanation and the photo motor are reported against their time limits, because the spec sets no target for them.
+
+```bash
+python -m scripts.latency_test                                   # motors in this process, 20 runs each (USE_BEDROCK=true)
+python -m scripts.latency_test --runs 50 --motors triage,vitals
+LATENCY_TEST_TOKEN=<patient token> python -m scripts.latency_test --mode http --url https://ai.dev.vitals-signs.com
+```
+
+`--mode http` measures the full round trip through the gateway (the token's user must have given the consents). Exit code 0 = targets met.
+
+**Benchmark** (`scripts/benchmark_models.py`): every candidate model of each motor (the routing in `app/configurations/routing.py`) on the same cases with the motor's real prompt. It reports:
+- triage quality against draft risk labels (valid JSON, exact level, within one level, critical recall, under-triage)
+- latency, tokens and cost per call
+- visual cost per image
+- cost per active user per month for the agreed usage profile, plus elevated escalation and provider outage
+
+```bash
+python -m scripts.benchmark_models --dry-run     # plan and number of calls, calls nothing
+python -m scripts.benchmark_models               # full run (121 Bedrock calls, well under USD 1)
+python -m scripts.benchmark_models --images-dir ./test-photos   # de-identified test photos instead of the synthetic one
+```
+
+The usage profile defaults to the proposal's (8 triage conversations × 6 calls, 8 images, 60 vitals explanations, 20% escalation, +20% retries). Change it with options such as `--escalation-rate` or `--images`. Exit code 0 = the agreed profile is at or below USD 0.50 and every model answered.
+
+The risk labels in `scripts/m2/triage_cases.json` are drafts. The client's medical advisor must review them before the agreement numbers are used as clinical evidence. The synthetic photo is only good for cost and latency; visual accuracy needs real, de-identified, labeled test photos.
 
 ## 15. Environment variables
 
@@ -947,17 +1203,30 @@ Never commit real values. Variables marked *proposed* will be confirmed when the
 | `TRIAGE_URL` | orchestrator | Internal URL of the triage motor (default `http://localhost:8000`) |
 | `VISUAL_URL` | orchestrator | Internal URL of the visual motor |
 | `VITALS_URL` | orchestrator | Internal URL of the vitals motor |
-| `DATABASE_URL` | Alembic | Optional. Full Postgres URL for migrations, e.g. `postgresql://vs_ai:…@localhost:5433/vitalsigns`. When empty, Alembic uses the `DB_*` values below. |
+| `DATABASE_URL` | Alembic, seed script, cron jobs | Optional. Full Postgres URL for migrations, e.g. `postgresql://vs_ai:…@localhost:5433/vitalsigns`. When empty, Alembic uses the `DB_*` values below. |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_APP_USER`, `DB_APP_PASSWORD` | API, worker, Alembic | Postgres connection for the AI login (written to `.env` by `setup_db.sh`). In Docker, `DB_HOST`/`DB_PORT` are set by `docker-compose.yml`. |
 | `DB_ADMIN_PASSWORD` | Docker postgres | Admin password of the Docker Postgres (optional; defaults to `DB_APP_PASSWORD`) |
+| `PG_PRIVATE_BIND_IP` | Docker postgres (server only) | **Required on the server.** The server's private IP; Postgres is published there for the NestJS backend (see [Node backend database access](#node-backend-database-access-server)) |
+| `NODE_BACKEND_PASSWORD` | migrate (server only) | **Required on the server.** Password of the `node_backend` login, set by the migration |
 | `REDIS_URL` | API, worker | Redis for the job queue (default `redis://localhost:6379/0`) |
 | `MAX_JOB_ATTEMPTS` | worker | Failed attempts before a job moves to `jobs:dead` (default 5) |
 | `FAILED_ENQUEUE_FILE` | API, worker | Where jobs go when Redis is down (default `failed_enqueue.jsonl`) |
+<<<<<<< Updated upstream
 | `JWT_PUBLIC_KEY` | orchestrator | PEM public key used to verify Node's RS256 JWTs |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | orchestrator | Expected JWT claims (proposed) |
 | `AWS_REGION` | motors | Approved U.S. Bedrock region |
 | `BEDROCK_ROUTING_CONFIG` | motors | Versioned routing configuration: default, escalation and fallback models per motor (proposed) |
 | `MOTOR_TIMEOUT_SECONDS` | orchestrator | Seconds to wait for each motor before treating it as failed (default 2.5) |
+=======
+| `JWT_SECRET` | orchestrator (every API container) | **Required.** The secret the NestJS backend signs its HS256 access tokens with. The app refuses to start without it, or with NestJS's public fallback value. In Docker it comes from `.env`. |
+| `USE_BEDROCK` | motors | `false` (default): the motors answer with their stub rules and nothing calls AWS. `true`: the motors call Amazon Bedrock. **Keep `false` wherever real patient data could flow until the AWS BAA is signed.** |
+| `AWS_REGION` | motors | Bedrock region (default `us-west-2`). The model IDs are US cross-region profiles (`us.`); never `global.` |
+| `TRIAGE_TIMEOUT_SECONDS`, `VISUAL_TIMEOUT_SECONDS`, `VITALS_TIMEOUT_SECONDS` | orchestrator, motors | Seconds the orchestrator waits for each motor before treating it as failed; every model call of that motor must fit inside (defaults 3, 8, 3). Keep the gateway's `proxy_read_timeout` (12 s) above the largest. |
+| `MEDICAL_SOURCE_STATUSES` | motors | Statuses of `ai.medical_sources` the AI may cite (default `active`, client-approved only). `active,draft,proposed_addition` gives the draft list for a demo. |
+| `MEDICAL_SOURCES_CACHE_SECONDS` | motors | How long a motor keeps the source list in memory before reading the table again (default 300) |
+| `LINK_ALERT_EMAILS` | cron `source_check` | Optional. Comma-separated addresses that get one email per run listing the medical sources set to `broken` by the daily link check. Empty = no email (the WARNING in the log is always written). Sent through AWS SES in `AWS_REGION`. |
+| `LINK_ALERT_FROM` | cron `source_check` | Sender of that email: an address or domain verified in SES. Needed when `LINK_ALERT_EMAILS` is set. |
+>>>>>>> Stashed changes
 | `COST_ALERT_USD_PER_USER` | orchestrator | Projected monthly cost alert threshold, 0.40 (proposed) |
 | `PHI_ENABLED` | all | Stays `false` until the BAA is active (proposed) |
 | `ENVIRONMENT` | all | `local`, `staging` or `production` (proposed) |

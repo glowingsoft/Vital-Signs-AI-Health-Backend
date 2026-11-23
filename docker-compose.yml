@@ -30,6 +30,24 @@ x-app-env: &app-env
   REDIS_URL: redis://redis:6379/0
   MAX_JOB_ATTEMPTS: ${MAX_JOB_ATTEMPTS:-5}
   FAILED_ENQUEUE_FILE: /data/failed_enqueue.jsonl
+  # Same secret the NestJS backend signs access tokens with. main.py loads every router, so every API
+  # container imports python_auth and refuses to start without it. ":?" = compose stops with this message.
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env (the NestJS token secret)}
+  # AI models. Off by default: the motors answer with their stub rules and nothing calls AWS.
+  USE_BEDROCK: ${USE_BEDROCK:-false}
+  AWS_REGION: ${AWS_REGION:-us-west-2}
+  # /ai/assess refuses users without the consents in app/configurations/consent.py. Never false in production.
+  CONSENT_CHECK_ENABLED: ${CONSENT_CHECK_ENABLED:-true}
+  MAX_SYMPTOMS_CHARS: ${MAX_SYMPTOMS_CHARS:-2000}
+  # Statuses of ai.medical_sources the AI may cite. "active" = client-approved only.
+  MEDICAL_SOURCE_STATUSES: ${MEDICAL_SOURCE_STATUSES:-active}
+  # Daily link check (python -m app.cron_jobs.main): email the sources set to broken. Empty = no email.
+  LINK_ALERT_EMAILS: ${LINK_ALERT_EMAILS:-}
+  LINK_ALERT_FROM: ${LINK_ALERT_FROM:-}
+  # AWS keys for local development only, read from .env (which git ignores). Leave them out of .env
+  # on EC2: empty values are skipped and the instance's IAM role is used instead.
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
 
 # Health check for every API container (orchestrator and motors all have GET /health).
 x-api-healthcheck: &api-healthcheck
@@ -106,6 +124,11 @@ services:
     environment:
       <<: *app-env
       DB_NODE_USER: ${DB_NODE_USER}  # the first migration grants the Node login read access
+      # Optional locally: set NODE_BACKEND_PASSWORD in .env to create the node_backend login for a local NestJS
+      # (empty = skipped). Creating a login needs the postgres admin, with the password this container was started with.
+      NODE_BACKEND_PASSWORD: ${NODE_BACKEND_PASSWORD:-}
+      DB_ADMIN_USER: postgres
+      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD:-${DB_APP_PASSWORD}}
     depends_on:
       postgres:
         condition: service_healthy  # wait until Postgres is set up and accepting connections

@@ -9,9 +9,17 @@ from app import config
 from app.motors.triage.routes import router as triage_router
 from app.motors.visual.routes import router as visual_router
 from app.motors.vitals.routes import router as vitals_router
+from app.orchestrator.consent_check import ConsentError, consent_error_response
+from app.medical_sources.controller import router as medical_sources_router
 from app.orchestrator.routes import router as orchestrator_router
 from app.shared import db, redis_client
 
+<<<<<<< Updated upstream
+=======
+logger = logging.getLogger(__name__)
+from fastapi.middleware.cors import CORSMiddleware
+
+>>>>>>> Stashed changes
 
 # runs at start up and shutdown of the FastAPI app, to open and close connections to Redis and Postgres.
 @asynccontextmanager
@@ -30,17 +38,29 @@ async def lifespan(app: FastAPI):
 # FastAPI() = the whole web app, like Django's project. /docs is generated from it automatically.
 app = FastAPI(title=f"Vital Signs AI ({config.SERVICE})", lifespan=lifespan)
 
+# Consent refusals answer {"code", "message", "missing"} instead of FastAPI's {"detail": ...}.
+app.add_exception_handler(ConsentError, consent_error_response)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Which routers each SERVICE value switches on. include_router = like include() in Django's urls.py.
+# The medical source admin API runs with the orchestrator: the gateway sends every /ai/ request there.
 ROUTERS = {
-    "orchestrator": orchestrator_router,
-    "triage": triage_router,
-    "visual": visual_router,
-    "vitals": vitals_router,
+    "orchestrator": [orchestrator_router, medical_sources_router],
+    "triage": [triage_router],
+    "visual": [visual_router],
+    "vitals": [vitals_router],
 }
 
-for name, router in ROUTERS.items():
+for name, routers in ROUTERS.items():
     if config.SERVICE in ("all", name):
-        app.include_router(router)
+        for router in routers:
+            app.include_router(router)
 
 
 @app.get("/health")

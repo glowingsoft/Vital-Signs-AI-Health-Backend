@@ -1,0 +1,104 @@
+diff --git a/.github/workflows/dev.yml b/.github/workflows/dev.yml
+index cea1d2c..905037d 100644
+--- a/.github/workflows/dev.yml
++++ b/.github/workflows/dev.yml
+@@ -124,6 +124,9 @@ jobs:
+             grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+           fi
+ 
++          # Shared network: the gateway uses it to reach the v2_main copy (/opt/v2main) under /v2 (only once).
++          docker network inspect vitalsigns-shared >/dev/null 2>&1 || docker network create vitalsigns-shared
++
+           # App folder, owned by the SSH user so rsync can write to it.
+           mkdir -p "${APP_DIR}"
+           chown "${EC2_USER}:${EC2_USER}" "${APP_DIR}"
+diff --git a/docker-compose.aws.yml b/docker-compose.aws.yml
+index d83ed4f..1c68f8e 100644
+--- a/docker-compose.aws.yml
++++ b/docker-compose.aws.yml
+@@ -12,6 +12,12 @@
+ #   The AWS security group must allow 5432 from the backend server's security group only: AWS forwards traffic
+ #   for the Elastic IP to the private IP, so the binding alone does not keep 5432 off the internet.
+ # - Redis publishes no ports at all. Only the other containers can reach it.
++# - The gateway also joins the shared Docker network "vitalsigns-shared" and forwards /v2/... to the second
++#   copy of the backend (v2_main branch, /opt/v2main, Compose project "v2main", docker-compose.v2main.yml).
++#   The orchestrator gets the extra name "v1-orchestrator", because on the shared network the plain name
++#   "orchestrator" could also point to v2's orchestrator.
++# - Postgres also joins the shared network as "v1-postgres": v2 uses this SAME database (v2 has its own code and
++#   its own Redis, nothing else). pg_hba.conf's "samenet" already lets the app login in from that network.
+ # "!override" replaces the list from docker-compose.yml, "!reset" removes it (Docker Compose 2.24.4+).
+ #
+ # Certificate files live on the server, outside the app folder (rsync --delete never touches them):
+@@ -29,9 +35,17 @@ services:
+       - ./gateway/src:/usr/share/nginx/errors:ro
+       - /opt/letsencrypt:/etc/letsencrypt:ro
+       - /opt/certbot-www:/var/www/certbot:ro
++    networks:
++      default:
++      shared:
+     # Reload nginx every 12 hours so a renewed certificate is picked up without a restart.
+     command: ["/bin/sh", "-c", "while :; do sleep 12h; nginx -s reload; done & exec nginx -g 'daemon off;'"]
+ 
++  orchestrator:
++    networks:
++      default:
++        aliases: [v1-orchestrator]
++
+   certbot:
+     image: certbot/certbot:v2.11.0
+     restart: unless-stopped
+@@ -43,6 +57,10 @@ services:
+     entrypoint: ["/bin/sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"]
+ 
+   postgres:
++    networks:
++      default:
++      shared:
++        aliases: [v1-postgres]  # the name v2 uses for this database (docker-compose.v2main.yml)
+     # Private IP only, never 0.0.0.0. ":?" = compose stops with this message when it is missing.
+     ports: !override
+       - "${PG_PRIVATE_BIND_IP:?PG_PRIVATE_BIND_IP must be set in .env: the server's private IP (EC2 -> Private IPv4 address)}:5432:5432"
+@@ -75,3 +93,9 @@ services:
+ 
+   redis:
+     ports: !reset []
++
++networks:
++  # Created by both deploy workflows ("docker network create vitalsigns-shared").
++  shared:
++    external: true
++    name: vitalsigns-shared
+diff --git a/gateway/nginx.aws.conf b/gateway/nginx.aws.conf
+index d53df16..01a6b66 100644
+--- a/gateway/nginx.aws.conf
++++ b/gateway/nginx.aws.conf
+@@ -56,7 +56,9 @@ server {
+     limit_req zone=per_ip burst=20 nodelay;
+     limit_req_status 429;
+ 
+-    set $orchestrator http://orchestrator:8000;
++    # "v1-orchestrator", not "orchestrator": the gateway is also on the shared network "vitalsigns-shared",
++    # where another version's orchestrator answers to "orchestrator" too (docker-compose.aws.yml).
++    set $orchestrator http://v1-orchestrator:8000;
+ 
+     proxy_set_header Host              $host;
+     proxy_set_header X-Real-IP         $remote_addr;
+@@ -74,6 +76,18 @@ server {
+         proxy_pass $orchestrator;
+     }
+ 
++    # Other versions of the backend on this server (v2_main -> /opt/v2main, later v3 ...), one rule for all:
++    #   /v2/health  -> container "v2-orchestrator", path /health
++    #   /v3/ai/...  -> container "v3-orchestrator", path /ai/...
++    # Each version's orchestrator joins the shared network with the alias "<version>-orchestrator"
++    # (see docker-compose.v2main.yml on v2_main). A new version needs no change here.
++    # Names are looked up per request, so this gateway still starts when a version is not running;
++    # a version that is not running (or does not exist) answers 502.
++    location ~ ^/(?<api_version>v[0-9]+)(/health|/ai/.*)$ {
++        rewrite ^/v[0-9]+(/.*)$ $1 break;
++        proxy_pass http://$api_version-orchestrator:8000;
++    }
++
+     # Everything else, including /motor/*, /docs and /openapi.json.
+     location / {
+         return 404;

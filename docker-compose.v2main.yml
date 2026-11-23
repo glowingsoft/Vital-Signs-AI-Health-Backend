@@ -1,0 +1,97 @@
+# Second copy of the AI backend on the same EC2 server, deployed from the "v2_main" branch to /opt/v2main.
+# Used only by .github/workflows/v2main.yml, merged on top of docker-compose.yml (NOT docker-compose.aws.yml):
+#   sudo docker compose -p v2main -f docker-compose.yml -f docker-compose.v2main.yml up -d --build
+# On your Mac, keep using plain "docker compose up": nothing here changes the local setup.
+#
+# What v2 shares with the current version (/opt/vitalsigns-ai, "dev" branch):
+# - The SAME Postgres database (same data, same logins). v2 reaches it as "v1-postgres" over the shared
+#   Docker network "vitalsigns-shared". v2 has no Postgres of its own.
+# - The gateway, HTTPS certificate and domain: the current gateway forwards
+#   https://ai.dev.vitals-signs.com/v2/... to v2's orchestrator (with /v2 removed).
+#
+# What v2 has of its own:
+# - The new code: orchestrator, triage, visual, vitals and worker, built as image "vitalsigns-ai-v2main"
+#   (a different name, so building v2 never replaces the image the current version runs).
+# - Its own Redis (job queue only, no patient data), so each worker only picks up its own version's jobs.
+#
+# v2 is a full copy of the app: it runs "alembic upgrade head" on the shared database on every deploy, like the
+# current version. Both branches must have the same migrations: a migration on only one branch makes the other
+# branch's migrate fail ("Can't locate revision") until it has that migration too.
+
+# Same settings for every v2 code container.
+x-v2-app: &v2-app
+  image: vitalsigns-ai-v2main
+  # Same as docker-compose.yml (wait for migrate and Redis), but without v2's own Postgres, which is not started.
+  depends_on: !override
+    migrate:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
+  networks:
+    default:   # v2's own network: its Redis and the other v2 containers
+    shared:    # the current version's Postgres ("v1-postgres") and gateway
+
+x-v2-env: &v2-env
+  # The current version's Postgres. Same DB_NAME / DB_APP_USER / DB_APP_PASSWORD as the current .env.
+  DB_HOST: v1-postgres
+  DB_PORT: "5432"
+
+services:
+  # Switched off on the server: the current version provides these.
+  gateway:
+    profiles: ["local-only"]
+  postgres:
+    profiles: ["local-only"]
+
+  # Runs "alembic upgrade head" on the shared database once per deploy, then exits.
+  migrate:
+    image: vitalsigns-ai-v2main
+    depends_on: !reset {}  # the shared Postgres belongs to the current version, not to this project
+    networks:
+      default:
+      shared:
+    environment:
+      <<: *v2-env
+      NODE_BACKEND_PASSWORD: ${NODE_BACKEND_PASSWORD:?NODE_BACKEND_PASSWORD must be set in .env (the node_backend login password)}
+      DB_ADMIN_USER: postgres
+      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD:-${DB_APP_PASSWORD}}  # same admin password as the shared Postgres
+
+  orchestrator:
+    <<: *v2-app
+    environment:
+      <<: *v2-env
+    networks:
+      default:
+      shared:
+        # "<version>-orchestrator": the current gateway sends /v2/... here (gateway/nginx.aws.conf on the dev branch).
+        aliases: [v2-orchestrator]
+
+  triage:
+    <<: *v2-app
+    environment:
+      <<: *v2-env
+
+  visual:
+    <<: *v2-app
+    environment:
+      <<: *v2-env
+
+  vitals:
+    <<: *v2-app
+    environment:
+      <<: *v2-env
+
+  worker:
+    <<: *v2-app
+    environment:
+      <<: *v2-env
+
+  # v2's own Redis: no published ports, only the v2 containers can reach it.
+  redis:
+    ports: !reset []
+
+networks:
+  # Created by both deploy workflows ("docker network create vitalsigns-shared").
+  shared:
+    external: true
+    name: vitalsigns-shared
