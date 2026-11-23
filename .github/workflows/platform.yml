@@ -21,7 +21,7 @@ name: Deploy platform
 
 on:
   push:
-    branches: [V1_main]
+    branches: [V2_main_new]
     paths:
       - "gateway/**"
       - "postgres/**"
