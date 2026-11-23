@@ -40,4 +40,5 @@ services:
     networks: [shared]
 
   postgres:
-    ports: !reset []
+    ports: !override
+      - "172.31.45.178:5432:5432"
