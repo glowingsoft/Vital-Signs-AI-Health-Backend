@@ -22,6 +22,7 @@ services:
     volumes: !override
       - ./gateway/nginx.aws.conf:/etc/nginx/conf.d/default.conf:ro
       - ./gateway/default-version.conf:/etc/nginx/vitalsigns/default-version.conf:ro
+      - ./gateway/cors:/etc/nginx/vitalsigns/cors:ro
       - ./gateway/src:/usr/share/nginx/errors:ro
       - /opt/letsencrypt:/etc/letsencrypt:ro
       - /opt/certbot-www:/var/www/certbot:ro

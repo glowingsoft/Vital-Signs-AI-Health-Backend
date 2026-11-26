@@ -14,4 +14,4 @@ router = APIRouter(prefix="/motor/visual", tags=["visual motor"])
 @router.post("/analyze", response_model=MotorOutput)
 def analyze_endpoint(motor_input: MotorInput) -> MotorOutput:
     # FastAPI has already validated the JSON body into a MotorInput (no serializer.is_valid() needed).
-    return analyze(motor_input.data)
+    return analyze(motor_input.data, country=motor_input.country)

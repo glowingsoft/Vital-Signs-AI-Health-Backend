@@ -24,6 +24,7 @@ services:
     volumes:
       - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./gateway/default-version.conf:/etc/nginx/vitalsigns/default-version.conf:ro
+      - ./gateway/cors:/etc/nginx/vitalsigns/cors:ro  # CORS: allowed browser origins (gateway/cors/allowed-origins.conf)
       - ./gateway/src:/usr/share/nginx/errors:ro  # custom 404 pages (HTML for browsers, JSON for apps)
     ports:
       # 127.0.0.1 = reachable only from your Mac, not your network. GATEWAY_PORT: another port if 80 is taken.

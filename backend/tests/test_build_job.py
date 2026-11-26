@@ -125,3 +125,53 @@ def test_actor_role_for_each_role(role, expected):
 def test_guest_never_gets_an_actor_role():
     with pytest.raises(ValueError):
         actor_role_for(UserType.Guest)
+
+
+# ---------- image_key / audio_key: the S3 keys are saved as they are, the image bytes never ----------
+
+from app.orchestrator.build_job import input_types, stored_input  # noqa: E402
+from app.shared.contracts import AssessRequest  # noqa: E402
+
+
+def test_image_key_is_saved_and_image_bytes_are_not():
+    request = AssessRequest(symptoms="rash", image="iVBORw0KGgoAAAANSUhEUg==", image_key="1764140000000-a1b2c3d4e5f6.jpg")
+    data = stored_input(request)
+    assert data["image"] == "1764140000000-a1b2c3d4e5f6.jpg"  # Node: NULLIF(input->>'image', 'omitted')
+    assert "image_key" not in data and "iVBOR" not in str(data)
+    assert input_types(request) == ["text", "image"]
+
+
+def test_image_without_key_is_omitted():
+    assert stored_input(AssessRequest(image="iVBORw0KGgo="))["image"] == "omitted"
+
+
+def test_audio_key_is_saved_as_audio():
+    request = AssessRequest(symptoms="me duele el pecho", audio_key="uploads/1764140000000-ffeeddccbbaa.m4a")
+    data = stored_input(request)
+    assert data["audio"] == "uploads/1764140000000-ffeeddccbbaa.m4a"  # Node: input->>'audio'
+    assert "audio_key" not in data
+    assert input_types(request) == ["text", "audio"]
+
+
+@pytest.mark.parametrize("key", [
+    "https://example.com/x.jpg", "/etc/passwd", "../other/x.jpg", "a/../b.jpg", "x y.jpg", "-x.jpg",
+])
+def test_bad_keys_are_refused(key):
+    with pytest.raises(ValueError):
+        AssessRequest(symptoms="x", image_key=key)
+
+
+def test_voice_id_is_saved_for_node():
+    request = AssessRequest(symptoms="chest pain", voice_id="6760c1f2a9b8e4d3c2b1a090")
+    data = stored_input(request)
+    assert data["voice_id"] == "6760c1f2a9b8e4d3c2b1a090" and "audio" not in data
+    assert input_types(request) == ["text", "audio"]
+    with pytest.raises(ValueError):
+        AssessRequest(symptoms="x", voice_id="not-an-id")
+
+
+def test_full_bucket_link_is_saved_as_the_key():
+    link = "https://vital-sign-sb.s3.eu-north-1.amazonaws.com/1794548444899-c05d3a070695.m4a?X-Amz-Signature=abc"
+    assert AssessRequest(symptoms="x", audio_key=link).audio_key == "1794548444899-c05d3a070695.m4a"
+    with pytest.raises(ValueError):
+        AssessRequest(symptoms="x", audio_key="https://evil.example.com/x.m4a")

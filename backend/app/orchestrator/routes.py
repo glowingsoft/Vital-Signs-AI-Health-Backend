@@ -29,20 +29,23 @@ def build_motor_inputs(request: AssessRequest, user_id: str) -> Dict[str, MotorI
     """Turn the app's request into one MotorInput per needed motor. Missing parts = motor not called.
     user_id = the caller's id from the verified token, never from the request body."""
     now = datetime.now(timezone.utc)
+    # The patient's country picks which trusted medical sources each motor may cite.
+    country = request.context.country if request.context else None
     inputs = {}
     if request.symptoms:
         inputs["triage"] = MotorInput(
-            user_id=user_id, timestamp=now, input_type="text", data={"message": request.symptoms}
+            user_id=user_id, timestamp=now, input_type="text", data={"message": request.symptoms}, country=country
         )
     if request.image:
         inputs["visual"] = MotorInput(
-            user_id=user_id, timestamp=now, input_type="image", data={"image": request.image}
+            user_id=user_id, timestamp=now, input_type="image", data={"image": request.image}, country=country
         )
     if request.vitals:
         inputs["vitals"] = MotorInput(
             user_id=user_id,
             timestamp=now,
             input_type="vitals",
+            country=country,
             # exclude_none = only send the readings the user actually has; mode="json" = dates become strings
             data=request.vitals.model_dump(mode="json", exclude_none=True),
         )

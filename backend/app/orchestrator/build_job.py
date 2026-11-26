@@ -27,7 +27,9 @@ def input_types(request: AssessRequest) -> List[str]:
     types = []
     if request.symptoms:
         types.append("text")
-    if request.image:
+    if request.audio_key or request.voice_id:
+        types.append("audio")  # the symptoms were spoken: the recording is kept in S3
+    if request.image or request.image_key:
         types.append("image")
     if request.vitals:
         types.append("vitals")
@@ -35,10 +37,17 @@ def input_types(request: AssessRequest) -> List[str]:
 
 
 def stored_input(request: AssessRequest) -> dict:
-    """The request as saved in ai.assessments.input. Image bytes are never stored in the database."""
-    data = request.model_dump(mode="json", exclude_none=True)  # mode="json" = dates become strings
-    if "image" in data:
+    """The request as saved in ai.assessments.input. Image bytes are never stored in the database:
+    "image" = the S3 key of the photo (image_key), or "omitted" when no key was sent;
+    "audio" = the S3 key of the voice recording (audio_key); "voice_id" = Node's voice note, saved as it is.
+    Node reads all three (GET /assessments)."""
+    data = request.model_dump(mode="json", exclude_none=True, exclude={"image", "image_key", "audio_key"})
+    if request.image_key:
+        data["image"] = request.image_key
+    elif request.image:
         data["image"] = "omitted"
+    if request.audio_key:
+        data["audio"] = request.audio_key
     return data
 
 
@@ -79,6 +88,8 @@ def build_motor_result(prediction_id: UUID, motor: str, output: MotorOutput, lat
         finding_type=output.finding_type,
         evidence_level=output.evidence_level,
         reference=output.reference,
+        source_id=output.source_id,
+        source_status=output.source_status,
         model_name=output.model_name,
         model_version=output.model_version,
         escalated=output.escalated,

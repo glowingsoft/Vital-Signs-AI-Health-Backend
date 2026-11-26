@@ -137,7 +137,14 @@ services:
     environment:
       <<: *app-env
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
-      DB_NODE_USER: ${DB_NODE_USER}  # the first migration grants the Node login read access
+      # The NestJS backend's login: the migrations give it exactly the grants it needs (7635008277b8 ... f3a9c2d81b40).
+      DB_NODE_USER: ${DB_NODE_USER}
+      # Only used when that login does not exist yet (postgres/init.sh normally creates it): it is then created
+      # over an admin connection (DB_ADMIN_USER / DB_ADMIN_PASSWORD, the platform's postgres admin).
+      DB_NODE_PASSWORD: ${DB_NODE_PASSWORD:-}
+      NODE_BACKEND_PASSWORD: ${NODE_BACKEND_PASSWORD:-}
+      DB_ADMIN_USER: ${DB_ADMIN_USER:-postgres}
+      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD:-${DB_APP_PASSWORD}}
     networks: [default, shared]
 
   worker:

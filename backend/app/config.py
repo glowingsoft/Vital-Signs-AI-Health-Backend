@@ -83,3 +83,21 @@ USE_BEDROCK = (os.environ.get("USE_BEDROCK") or "false").strip().lower() in ("1"
 # Bedrock region. The model IDs in app/configurations/models.py are US cross-region profiles.
 # Credentials come from the standard AWS chain (the EC2 instance's IAM role), never from .env.
 AWS_REGION = os.environ.get("AWS_REGION") or "us-west-2"
+
+# ---------- Trusted medical source library ----------
+
+# Only approved sources are available to the AI by default.
+MEDICAL_SOURCE_STATUSES = tuple(
+    status.strip() for status in (os.environ.get("MEDICAL_SOURCE_STATUSES") or "active").split(",") if status.strip()
+)
+
+# How long the motors keep the medical source library in memory.
+MEDICAL_SOURCES_CACHE_SECONDS = float(os.environ.get("MEDICAL_SOURCES_CACHE_SECONDS") or "300")
+
+# ---------- CORS (browsers calling this service directly, e.g. uvicorn on your Mac) ----------
+# Behind the gateway, nginx answers CORS itself (gateway/cors/) and drops these headers.
+# Empty or "*" = every origin. Otherwise a comma-separated list; a frontend on localhost (any port) is always allowed.
+CORS_ORIGINS = tuple(
+    origin.strip().rstrip("/") for origin in (os.environ.get("CORS_ORIGINS") or "").split(",") if origin.strip()
+)
+LOCAL_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1|\[::1\]|[a-z0-9-]+\.localhost)(:\d{1,5})?"

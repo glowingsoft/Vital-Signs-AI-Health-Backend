@@ -12,10 +12,11 @@ import pytest
 TEST_SECRET = "test-secret-for-pytest-only-0123456789"
 os.environ["JWT_SECRET"] = TEST_SECRET
 
+
 from fastapi import Depends, FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from python_auth.auth import AuthUser, current_user, require_roles  # noqa: E402
+from python_auth.auth import verify_access_token, AuthUser, _load_secret, current_user, require_roles  # noqa: E402
 from python_auth.roles import UserType  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -86,6 +87,14 @@ def test_valid_token_returns_id_and_role_only():
     assert r.json() == {"user_id": USER_ID, "user_type": 1}
 
 
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_secret_with_matching_outer_quotes_is_unwrapped(monkeypatch, quote):
+    secret = "quoted-test-secret-0123456789"
+    monkeypatch.setenv("JWT_SECRET", f"{quote}{secret}{quote}")
+
+    assert _load_secret() == secret
+
+
 @pytest.mark.parametrize("role", [UserType.Supervisor, UserType.Labeler, UserType.Developer])
 def test_new_roles_are_accepted(role):
     r = get("/me", make_token(user_type=int(role)))
@@ -93,8 +102,15 @@ def test_new_roles_are_accepted(role):
     assert r.json() == {"user_id": USER_ID, "user_type": int(role)}
 
 
-def test_auth_user_does_not_carry_email_or_name():
-    assert set(AuthUser.__dataclass_fields__) == {"user_id", "user_type"}
+def test_auth_user_does_not_carry_email():
+    # The name is kept only for staff actions (who changed a medical source); the email is never kept.
+    assert set(AuthUser.__dataclass_fields__) == {"user_id", "user_type", "name"}
+
+
+def test_auth_user_name_comes_from_the_token():
+    assert verify_access_token(make_token(name="  Jane   Admin ")).name == "Jane Admin"
+    assert verify_access_token(make_token(name=None)).name is None
+    assert verify_access_token(make_token(name=123)).name is None
 
 
 # --- 401 cases --------------------------------------------------------------
@@ -117,6 +133,17 @@ def test_expired_token_is_401():
 
 def test_wrong_secret_is_401():
     assert get("/me", make_token(secret="some-other-secret-value-xyz")).status_code == 401
+
+
+def test_invalid_token_is_logged_without_logging_token(caplog):
+    token = make_token(secret="some-other-secret-value-xyz")
+
+    r = get("/me", token)
+
+    assert r.status_code == 401
+    assert "JWT verification failed: InvalidSignatureError" in caplog.text
+    assert "Authentication rejected: Invalid token" in caplog.text
+    assert token not in caplog.text
 
 
 def test_tampered_payload_is_401():

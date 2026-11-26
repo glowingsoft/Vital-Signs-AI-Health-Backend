@@ -284,7 +284,9 @@ def test_parse_answer_rejects_bad_answers(text):
 
 def test_parse_answer_accepts_code_fence():
     text = '```json\n{"risk_level": "low", "confidence_score": 0.5, "explanation": "Fine."}\n```'
-    assert runner.parse_answer(text) == {"risk_level": "low", "confidence_score": 0.5, "explanation": "Fine."}
+    assert runner.parse_answer(text) == {
+        "risk_level": "low", "confidence_score": 0.5, "explanation": "Fine.", "source_id": None, "finding_type": None,
+    }
 
 
 # ---------- orchestrator: a motor whose models all fail is marked as failed ----------

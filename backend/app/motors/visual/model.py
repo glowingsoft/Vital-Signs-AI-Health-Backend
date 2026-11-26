@@ -6,6 +6,7 @@ import binascii
 from typing import Optional
 
 from app import config
+from app.medical_sources.library import prompt_block
 from app.configurations.routing import ROUTES, pick_model
 from app.motors.runner import JSON_ANSWER_INSTRUCTIONS, ModelResult, run_chain, stub_result
 
@@ -39,7 +40,7 @@ def get_model(data: dict, escalate: bool = False) -> str:
     return pick_model(MOTOR, escalate)
 
 
-def run_model(data: dict, escalate: bool = False) -> ModelResult:
+def run_model(data: dict, escalate: bool = False, country: Optional[str] = None) -> ModelResult:
     if not config.USE_BEDROCK:
         return stub_result()
     block = image_block(data.get("image"))
@@ -50,7 +51,7 @@ def run_model(data: dict, escalate: bool = False) -> ModelResult:
         MOTOR,
         get_model(data, escalate),
         messages,
-        SYSTEM_PROMPT,
+        SYSTEM_PROMPT + prompt_block(MOTOR, country),  # + the trusted sources for this country and motor
         ROUTES[MOTOR].max_output_tokens,
         escalated=escalate,
         image_count=1,

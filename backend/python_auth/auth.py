@@ -7,6 +7,7 @@ access/refresh tokens share one secret and differ only by `is_refresh`.
 This module only verifies tokens. It never talks to NestJS or MongoDB.
 """
 
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -18,25 +19,27 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from python_auth.roles import UserType
 
+logger = logging.getLogger(__name__)
+
 ALGORITHM = "HS256"
 
-# Hard-coded fallback in the NestJS repo (src/guards/auth.guard.ts:14).
-# It is public, so anyone could forge tokens with it. Refuse to run with it.
+# Legacy public NestJS fallback. Refuse it even if it is still configured in the environment.
 _PUBLIC_FALLBACK_SECRET = "Some Complex Secrete Value"
 
 _OBJECT_ID = re.compile(r"^[0-9a-f]{24}$")
 
 
 def _load_secret() -> str:
-    secret = os.environ.get("JWT_SECRET", "")
+    secret = os.environ.get("JWT_SECRET", "").strip()
+    if len(secret) >= 2 and secret[0] == secret[-1] and secret[0] in ("'", '"'):
+        secret = secret[1:-1]
     if not secret.strip():
         raise RuntimeError(
             "JWT_SECRET is not set. It must be the same value the NestJS backend signs tokens with."
         )
     if secret == _PUBLIC_FALLBACK_SECRET:
         raise RuntimeError(
-            "JWT_SECRET is the hard-coded NestJS fallback, which is public. "
-            "Fix the NestJS secret loading first (see README, Issues found #1)."
+            "JWT_SECRET is the public legacy NestJS fallback. Configure a private secret in both services."
         )
     return secret
 
@@ -47,10 +50,14 @@ _SECRET = _load_secret()
 
 @dataclass(frozen=True)
 class AuthUser:
-    """The only identity the AI code gets. Email and name are left out on purpose."""
+    """The only identity the AI code gets. Email is left out on purpose.
+
+    name is the display name from the token. It is only stored for staff actions (e.g. who changed a medical
+    source), never next to patient health data."""
 
     user_id: str
     user_type: UserType
+    name: Optional[str] = None
 
 
 class InvalidToken(Exception):
@@ -73,6 +80,7 @@ def verify_access_token(token: str) -> AuthUser:
     except jwt.ExpiredSignatureError as e:
         raise InvalidToken("Token expired") from e
     except jwt.PyJWTError as e:
+        logger.warning("JWT verification failed: %s", type(e).__name__)
         raise InvalidToken("Invalid token") from e
 
     # Access and refresh tokens share a secret; `is_refresh` is the only difference.
@@ -93,7 +101,15 @@ def verify_access_token(token: str) -> AuthUser:
     except ValueError as e:
         raise InvalidToken("Invalid user_type") from e
 
-    return AuthUser(user_id=user_id, user_type=user_type)
+    return AuthUser(user_id=user_id, user_type=user_type, name=_display_name(payload.get("name")))
+
+
+def _display_name(value) -> Optional[str]:
+    """The token's name claim as a short clean string, or None (missing, not text, or still encrypted)."""
+    if not isinstance(value, str):
+        return None
+    value = " ".join(value.split())[:200]
+    return value or None
 
 
 _bearer = HTTPBearer(auto_error=False)
@@ -112,10 +128,12 @@ def current_user(
 ) -> AuthUser:
     """FastAPI dependency: 401 unless the request carries a valid access token."""
     if credentials is None or credentials.scheme.lower() != "bearer":
+        logger.warning("Authentication rejected: missing bearer token")
         raise _unauthorized("Missing bearer token")
     try:
         return verify_access_token(credentials.credentials)
     except InvalidToken as e:
+        logger.warning("Authentication rejected: %s", e)
         raise _unauthorized(str(e)) from e
 
 

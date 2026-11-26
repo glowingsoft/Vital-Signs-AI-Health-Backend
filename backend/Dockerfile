@@ -21,6 +21,8 @@ COPY python_auth ./python_auth
 COPY alembic.ini .
 COPY alembic ./alembic
 COPY collection ./collection
+# Curated source seed library, also used as a fallback when no database is configured.
+COPY db ./db
 # Milestone 1 check (python -m scripts.verify_m1), run inside the orchestrator container on the server.
 COPY scripts ./scripts
 # Run by the "migrate" container: waits for the platform's Postgres, then alembic upgrade head.

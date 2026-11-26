@@ -4,11 +4,13 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app import config
 from app.motors.triage.routes import router as triage_router
 from app.motors.visual.routes import router as visual_router
 from app.motors.vitals.routes import router as vitals_router
+from app.medical_sources.controller import router as medical_sources_router
 from app.orchestrator.routes import router as orchestrator_router
 from app.shared import db, redis_client
 
@@ -30,17 +32,31 @@ async def lifespan(app: FastAPI):
 # FastAPI() = the whole web app, like Django's project. /docs is generated from it automatically.
 app = FastAPI(title=f"Vital Signs AI ({config.SERVICE})", lifespan=lifespan)
 
+# The allowed origin is echoed back (not "*"), so a browser that sends credentials is accepted too.
+# Every origin by default; with CORS_ORIGINS only those plus any localhost frontend (app/config.py).
+_any_origin = not config.CORS_ORIGINS or "*" in config.CORS_ORIGINS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[] if _any_origin else list(config.CORS_ORIGINS),
+    allow_origin_regex=".*" if _any_origin else config.LOCAL_ORIGIN_REGEX,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    max_age=600,
+)
+
 # Which routers each SERVICE value switches on. include_router = like include() in Django's urls.py.
 ROUTERS = {
-    "orchestrator": orchestrator_router,
-    "triage": triage_router,
-    "visual": visual_router,
-    "vitals": vitals_router,
+    "orchestrator": [orchestrator_router, medical_sources_router],
+    "triage": [triage_router],
+    "visual": [visual_router],
+    "vitals": [vitals_router],
 }
 
-for name, router in ROUTERS.items():
+for name, routers in ROUTERS.items():
     if config.SERVICE in ("all", name):
-        app.include_router(router)
+        for router in routers:
+            app.include_router(router)
 
 
 @app.get("/health")

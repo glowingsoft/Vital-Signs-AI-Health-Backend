@@ -103,22 +103,67 @@ def usage_fields(result: ModelResult) -> dict:
     }
 
 
-# Asked of the triage and visual models. Vitals only asks for a plain-text explanation.
-JSON_ANSWER_INSTRUCTIONS = (
-    'Reply with JSON only: {"risk_level": "low" | "medium" | "high" | "critical", '
-    '"confidence_score": a number from 0 to 1, "explanation": "one or two short sentences"}. '
+# ---------- What the models are asked, and how their answers are read ----------
+
+SAFE_WORDING = (
     "Never diagnose, never name a condition, medicine or specific medical action, and never sound certain: "
     'use words like "suggests" or "worth reviewing". Always recommend a healthcare professional.'
 )
 
+# Every answer names the source it is based on: an id from the trusted list in the prompt (library.prompt_block).
+SOURCE_FORMAT = (
+    '"finding_type": "a short snake_case name for what you assessed, for example chest_pain or burn", '
+    '"source_id": "the id of one source from the trusted source list, or \\"none\\""'
+)
+SOURCE_RULES = (
+    "Medical source rules: 1. You are given a trusted source list with only the sources for this patient's "
+    "country. 2. Pick the one source id from that list that best supports your answer, or \"none\". "
+    "3. Copy the id exactly. Never write a title, author, year, DOI or link: the system attaches them, and any id "
+    "that is not in the list is ignored. 4. If no source in the list fits, use \"none\". "
+    "Never make up a source or a link. "
+)
 
-def parse_answer(text: str) -> Optional[dict]:
-    """The model's JSON answer, or None when it is missing or does not follow the format."""
+# Asked of the triage and visual models.
+JSON_ANSWER_INSTRUCTIONS = (
+    'Reply with JSON only: {"risk_level": "low" | "medium" | "high" | "critical", '
+    '"confidence_score": a number from 0 to 1, "explanation": "one or two short sentences", '
+    + SOURCE_FORMAT + "}. " + SOURCE_RULES + SAFE_WORDING
+)
+
+# Asked of the vitals model: the risk level comes from the rules, the model explains it and names a source.
+VITALS_ANSWER_INSTRUCTIONS = (
+    'Reply with JSON only: {"explanation": "one or two short sentences", ' + SOURCE_FORMAT + "}. "
+    + SOURCE_RULES + SAFE_WORDING
+)
+
+
+def _load_json(text: str) -> Optional[dict]:
     text = text.strip()
     if text.startswith("```"):  # some models wrap JSON in a code fence
         text = text.strip("`").removeprefix("json")
     try:
         answer = json.loads(text)
+    except ValueError:
+        return None
+    return answer if isinstance(answer, dict) else None
+
+
+def _source_fields(answer: dict) -> dict:
+    """finding_type and source_id as the model gave them (the id is checked later by library.check_source)."""
+    source_id = answer.get("source_id")
+    finding_type = answer.get("finding_type")
+    return {
+        "source_id": source_id.strip() if isinstance(source_id, str) else None,
+        "finding_type": finding_type.strip()[:100] if isinstance(finding_type, str) and finding_type.strip() else None,
+    }
+
+
+def parse_answer(text: str) -> Optional[dict]:
+    """The model's JSON answer, or None when it is missing or does not follow the format."""
+    answer = _load_json(text)
+    if answer is None:
+        return None
+    try:
         risk_level = answer["risk_level"]
         confidence = float(answer["confidence_score"])
         explanation = str(answer["explanation"]).strip()
@@ -126,4 +171,19 @@ def parse_answer(text: str) -> Optional[dict]:
         return None
     if risk_level not in RISK_ORDER or not 0 <= confidence <= 1 or not explanation:
         return None
-    return {"risk_level": risk_level, "confidence_score": confidence, "explanation": explanation}
+    return {"risk_level": risk_level, "confidence_score": confidence, "explanation": explanation, **_source_fields(answer)}
+
+
+def parse_vitals_answer(text: str) -> Optional[dict]:
+    """The vitals model's answer: {"explanation", "finding_type", "source_id"}. A plain-text answer (older
+    prompt, or a model that ignored the format) still gives the explanation, with no source."""
+    text = text.strip()
+    if not text:
+        return None
+    answer = _load_json(text)
+    if answer is None:
+        return {"explanation": text, "source_id": None, "finding_type": None}
+    explanation = str(answer.get("explanation") or "").strip()
+    if not explanation:
+        return None
+    return {"explanation": explanation, **_source_fields(answer)}

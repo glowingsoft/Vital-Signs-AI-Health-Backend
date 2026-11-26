@@ -2,16 +2,16 @@
 
 FastAPI dependencies that verify the JWT access tokens issued by the Vital Signs NestJS backend. The Python AI service checks tokens on its own, with no call to NestJS or MongoDB.
 
-> **Before you deploy:** read [Issues found #1](#1-critical-nestjs-signs-rest-tokens-with-the-hard-coded-fallback-secret). In this repo, NestJS currently signs tokens with a public, hard-coded secret, not your `.env` value. This package refuses to start with that secret, so it will not accept real tokens until NestJS is fixed.
+> **Before you deploy:** configure the same strong, private `JWT_SECRET` in NestJS and the Python API. NestJS loads `.env` before importing the application; both services reject a missing secret, and Python also rejects the legacy public fallback.
 
 ## What NestJS does (findings)
 
 | Item | Value | Where |
 |---|---|---|
-| Where tokens are created | `generateToken()` in **`src/guards/auth.guard.ts`** (not in UserService). Called from `UserService` (signIn, socialAuth, verifyOtp, refreshToken) and `AdminService.signIn` | `src/guards/auth.guard.ts:72` |
-| Library | `jsonwebtoken.sign()` directly. `JwtModule` (`src/user/user.module.ts:41-47`) is only used for verifying | `auth.guard.ts:76, :95` |
+| Where tokens are created | `generateToken()` in **`src/guards/auth.guard.ts`** (not in UserService). Called from `UserService` (signIn, socialAuth, verifyOtp, refreshToken) and `AdminService.signIn` | `src/guards/auth.guard.ts` |
+| Library | `jsonwebtoken.sign()` directly. The shared `JwtModule` and token helper use the same environment secret | `src/user/user.module.ts`, `src/guards/auth.guard.ts` |
 | Algorithm | **HS256** (jsonwebtoken default, confirmed from a real token header) | — |
-| Secret | env **`JWT_SECRET`**, with fallback `'Some Complex Secrete Value'` | `auth.guard.ts:14` |
+| Secret | env **`JWT_SECRET`**; no default (legacy public fallback rejected) | `src/constants/constants.ts` |
 | Access token lifetime | **1 hour** (`expiresIn: '1h'`) | `auth.guard.ts:87` |
 | Refresh token lifetime | **1 day** (`expiresIn: '1d'`) | `auth.guard.ts:99` |
 
@@ -97,30 +97,23 @@ Python cannot see the database, so a token stays valid until it expires (up to 1
 
 ## Issues found
 
-These are in the NestJS code and have **not** been changed.
+The Node token paths now use the required environment secret, and startup rejects the old public fallback. Deploy both services with the same private value and restart them; tokens issued with the previous fallback will not verify.
 
-### 1. Critical: NestJS signs REST tokens with the hard-coded fallback secret
-`auth.guard.ts:14` reads `process.env.JWT_SECRET` once, when the file is first imported. That import happens before `.env` is loaded: `ConfigModule.forRoot()` runs later, and the first `dotenv` `config()` call is in `src/utils/dbUtils.ts:5`, which is imported after the guard. I confirmed this against the compiled build. A token from `generateToken()` verifies with `'Some Complex Secrete Value'` and **does not** verify with the `.env` value. The string is in the repository, so anyone with the code can forge an admin token.
+### 1. Critical: socket connections accept unverified user IDs
+`resolveSubjectId()` can fall back to `auth.subjectId` or `query.subjectId` (`chat/chat.gateway.ts`) without verifying that identity. Any client may be able to connect as another user and access their chat or call events.
+**Fix:** reject the connection when the token is missing or invalid, and remove the `subjectId` fallback.
 
-Production is affected too, unless the PM2 process gets `JWT_SECRET` from its real environment and not only from `.env`. Check this with the command above.
-
-**Fix:** load env first by making `import 'dotenv/config';` the very first line of `src/main.ts`. Also read the secret lazily, inside the functions or through `ConfigService`, and remove every fallback (`auth.guard.ts:14`, `chat.gateway.ts:50`, `constants.ts:1` used in `user.module.ts:43`). Fail at startup if it is missing. Then rotate `JWT_SECRET`, because the old one is public. All users will need to log in again.
-
-### 2. Critical: socket connections accept unverified user IDs
-`chat.gateway.ts:50` loads late, so it gets the *real* `.env` secret, which doesn't match the tokens from issue #1. Verification fails, and `resolveSubjectId()` then falls back to `auth.subjectId` or `query.subjectId` (`chat.gateway.ts:141-143`) without checking anything. Any client can connect as any user, receive their chat messages and call events, and place calls as them.
-**Fix:** reject the connection when the token is missing or invalid, and remove the `subjectId` fallback. Fixing #1 first is required, or every socket will be rejected.
-
-### 3. High: NestJS accepts refresh tokens as access tokens
+### 2. High: NestJS accepts refresh tokens as access tokens
 `AuthGuard` (`auth.guard.ts:35-39`) never checks `is_refresh`, and the gateway doesn't either (`chat.gateway.ts:134`). A refresh token is valid for 1 day, so it works as a 1-day access token on every route. Python rejects these tokens.
 **Fix:** after verifying, add `if (payload.is_refresh !== false) throw new UnauthorizedException()`. A stronger fix is a separate refresh secret or a distinct `typ` or `aud` claim.
 
-### 4. Same root cause: PII encryption keys use the built-in defaults
-`src/utils/encrptdecrpt.ts:8` and `:10` read `ENCRYPTION_KEY` and `HASH_SECRET` at import time too, and the same trace shows they were not set yet. If so, patient data has been encrypted with the defaults `'your-default-key'` and `'your-hash-secret-key'`. **Do not just fix the load order.** Existing rows would no longer decrypt, and email lookups would stop matching. This needs a migration that decrypts with the old keys and re-encrypts with the new ones. (This is outside the scope of the Python service; it is listed because it has the same cause as #1.)
+### 3. High: PII encryption keys have built-in defaults
+`src/utils/encrptdecrpt.ts` uses defaults if `ENCRYPTION_KEY` and `HASH_SECRET` are not configured. If existing data was encrypted with those defaults, changing the keys without a migration would make it unreadable and break email lookups. Verify the deployed values before changing them.
 
-### 5. Medium: status codes are swapped compared with the standard
+### 4. Medium: status codes are swapped compared with the standard
 NestJS returns 403 for an invalid or expired token (`auth.guard.ts:41`) and 401 for the wrong role (`access.guard.ts:36, :39`). The usual convention is the opposite, which is what Python does. The mobile app must refresh its token on **403** from NestJS but on **401** from Python.
 **Fix:** use `UnauthorizedException` in AuthGuard and `ForbiddenException` in AccessGuard. Update the app's refresh logic at the same time.
 
-### 6. Low: access tokens contain plain-text email and name
+### 5. Low: access tokens contain plain-text email and name
 `auth.guard.ts:79-80` decrypts the email and name into the access token. A JWT is only signed, not encrypted, so anyone holding the token can read them, including logs and proxies.
 **Fix:** keep only `_id`, `user_type` and `timezone` in the token.

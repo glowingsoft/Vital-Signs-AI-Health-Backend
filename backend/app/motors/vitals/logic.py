@@ -2,9 +2,12 @@
 # Each reading gets its own risk level; the most serious one becomes the motor's answer.
 # The routed AI model (app/motors/vitals/model.py) only writes the explanation, never the risk level.
 
-from app.motors.runner import usage_fields
-from app.motors.vitals.model import run_model
-from app.shared.contracts import DISCLAIMER_ID, MotorOutput, highest_risk
+from typing import Optional
+
+from app.medical_sources.library import check_source, rule_source_id
+from app.motors.runner import parse_vitals_answer, usage_fields
+from app.motors.vitals.model import MOTOR, run_model
+from app.shared.contracts import DISCLAIMER_ID, RISK_ORDER, MotorOutput, highest_risk
 
 
 def check_heart_rate(value: int) -> str:
@@ -55,26 +58,39 @@ EXPLANATIONS = {
 }
 
 
-def analyze(data: dict) -> MotorOutput:
+def analyze(data: dict, country: Optional[str] = None) -> MotorOutput:
+    """`country` = the patient's country (US or MX): which trusted medical sources may be cited."""
     # Only check the readings that were actually sent; any of them can be missing.
-    levels = ["low"]
+    # checked = (risk level, library topic) of each reading.
+    checked = []
     if data.get("heart_rate") is not None:
-        levels.append(check_heart_rate(data["heart_rate"]))
+        checked.append((check_heart_rate(data["heart_rate"]), "heart_rate"))
     if data.get("spo2") is not None:
-        levels.append(check_spo2(data["spo2"]))
+        checked.append((check_spo2(data["spo2"]), "oxygen_saturation"))
     if data.get("systolic") is not None and data.get("diastolic") is not None:
-        levels.append(check_blood_pressure(data["systolic"], data["diastolic"]))
+        checked.append((check_blood_pressure(data["systolic"], data["diastolic"]), "blood_pressure"))
     if data.get("respiratory_rate") is not None:
-        levels.append(check_respiratory_rate(data["respiratory_rate"]))
+        checked.append((check_respiratory_rate(data["respiratory_rate"]), "respiratory_rate"))
 
-    risk_level = highest_risk(levels)
-    result = run_model(data)
+    risk_level = highest_risk(["low"] + [level for level, _ in checked])
+    result = run_model(data, country=country)
+    answer = parse_vitals_answer(result.text)  # None for the stub
+
+    if answer is not None and answer["source_id"] is not None:
+        explanation, finding_type, picked = answer["explanation"], answer["finding_type"], answer["source_id"]
+    else:
+        explanation = answer["explanation"] if answer else EXPLANATIONS[risk_level]  # stub: the fixed text
+        finding_type = (answer or {}).get("finding_type")
+        # No AI pick: the source for the most serious reading first (stable for equal levels).
+        topics = [topic for _, topic in sorted(checked, key=lambda item: -RISK_ORDER.index(item[0]))]
+        picked = rule_source_id(MOTOR, country, topics)
     return MotorOutput(
         risk_level=risk_level,
         confidence_score=0.8,  # fixed value; simple threshold rules are fairly reliable
-        explanation=result.text.strip() or EXPLANATIONS[risk_level],  # stub: "" -> the fixed text
+        explanation=explanation,
         disclaimer_id=DISCLAIMER_ID,
-        finding_type="vital_thresholds",
-        evidence_level="stub",
+        finding_type=finding_type or "vital_thresholds",
+        # Matched: the library's evidence level, citation and link. Otherwise "pending_medical_review".
+        **check_source(picked, MOTOR, country),
         **usage_fields(result),  # model name, tokens and cost; "stub" and 0 when USE_BEDROCK is off
     )

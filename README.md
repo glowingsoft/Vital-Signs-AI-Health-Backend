@@ -654,6 +654,7 @@ main.py                       reads SERVICE, includes the right routers, GET /he
 app/config.py                 every environment variable, read in one place
 app/shared/contracts.py       Pydantic models: MotorInput, MotorOutput, AssessRequest, AssessResponse
 app/orchestrator/routes.py    POST /ai/assess: pick motors, call them in parallel
+app/medical_sources/          trusted-source admin API, validation, audit and seed loading
 app/orchestrator/consolidate.py   combine motor answers (highest risk wins)
 app/orchestrator/fda_filter.py    banned phrases + disclaimer
 app/motors/<name>/routes.py   POST /motor/<name>/analyze  (triage, visual, vitals)
@@ -856,6 +857,27 @@ The worker terminal prints `stream=jobs:save_assessment job_id=... result=saved 
 
 The tables are defined as SQLAlchemy models in `collection/` (one file per table) and changed only through **Alembic migrations** in `alembic/versions/`. Never change the schema by hand, from Node, or by editing `old_sql/`.
 
+### Trusted medical-source admin API
+
+The orchestrator also serves admin-only routes for the curated `ai.medical_sources` library:
+
+- `GET /ai/admin/medical-sources` — list sources; supports `country`, `status`, `motor`, and `topic` filters.
+- `GET /ai/admin/medical-sources/topics` — list allowed topic keys.
+- `GET`, `POST`, and `PATCH /ai/admin/medical-sources/{id}` — retrieve or manage a source.
+- `POST /ai/admin/medical-sources/{id}/approve` and `/deactivate` — approve or deactivate a source.
+
+These routes require a Node-issued Admin access token. Through the local gateway, use the `/v1` prefix,
+for example `GET http://localhost/v1/ai/admin/medical-sources/topics`.
+
+After the Alembic migration has run, load the curated seed rows once from `backend/`:
+
+```bash
+python -m scripts.load_medical_sources --check
+python -m scripts.load_medical_sources
+```
+
+The loader only inserts missing IDs; later source changes should go through the admin API.
+
 Run these from the project folder with `.venv` active. Alembic connects with `DATABASE_URL` if it is set, otherwise with the `DB_*` values from `.env`. Docker's Postgres is on port 5433, so for it use `DATABASE_URL=postgresql://vs_ai:<DB_APP_PASSWORD>@localhost:5433/vitalsigns alembic …` (in Docker the `migrate` container runs `alembic upgrade head` on every start).
 
 **Add a new table**
@@ -968,7 +990,7 @@ One command checks every Milestone 1 deliverable against the **running** service
 | 2. REST endpoints and data contract | `POST /ai/assess` with symptoms, vitals, image and all three: HTTP 200, risk level, confidence, explanation, disclaimer ID, prediction ID, right motors called, highest risk wins; 400 for an empty request, 422 for vitals without country |
 | 3. Security | TLS 1.3 works, TLS 1.2 refused, certificate valid (days left), HTTP redirects to HTTPS, HSTS; 401 without / with an invalid / with a refresh token; 403 for Doctor, Developer and Guest; ports 8000, 5432 and 6379 closed from outside |
 | 4. Queue and worker | Redis streams and the worker group exist, a worker is connected, no dead-letter jobs, no jobs left in the Redis-down file |
-| 5. Alembic schema | Database at the latest migration; all 8 tables; the 3 labels; label source, model version, state, country and device columns; disclaimer `disc_v1`; the section 2 requests saved to `assessments`, `motor_results`, `ai_usage` and `vitals_readings`; audit log row with a reason; audit log refuses UPDATE; append-only triggers |
+| 5. Alembic schema | Database at the latest migration; all 9 application tables; the 3 labels; label source, model version, state, country and device columns; disclaimer `disc_v1`; the section 2 requests saved to `assessments`, `motor_results`, `ai_usage` and `vitals_readings`; audit log row with a reason; audit log refuses UPDATE; append-only triggers |
 | 6. Documents | Schema documentation, labeling estimate and AI cost estimate in `docs/`; no Word temp files (skipped on the server, where `docs/` is not deployed) |
 | 7. AI cost and routing | Routing for all three motors, US-only model IDs, rate sheet matches the proposal (Haiku conversation = USD 0.0034), Bedrock on/off |
 | 8. Rate limit | 60 requests at once get some 429 answers (run last; `--skip-rate-limit` to leave it out) |
@@ -993,6 +1015,36 @@ JWT_SECRET=... python -m scripts.verify_m1 --skip-db
 
 ---
 
+## Local Docker for everyone, CORS, and the Postgres repair (Nov 2026)
+
+**Run both backends on your Mac** (no CORS errors from a frontend on `http://localhost:<any port>`):
+
+```bash
+docker network create vitalsigns-shared                      # once
+docker compose -f docker-compose.platform.yml up -d          # gateway (http://localhost) + Postgres (localhost:5433)
+docker compose up -d --build                                 # AI backend; "migrate" runs alembic upgrade head
+cd ../vital-sign-be && docker compose up -d --build          # NestJS backend (http://localhost:7001)
+```
+
+| URL | Goes to |
+|---|---|
+| `http://localhost/ai/...`, `/health`, `/v2/ai/...` | AI orchestrator (as on the server) |
+| `http://localhost/api/...`, `/socket.io/` | NestJS backend, local gateway only (`gateway/nginx.conf`) |
+| `http://localhost:7001/api/...` | NestJS backend directly |
+
+**CORS at the gateway** (`gateway/cors/`): nginx answers the preflight itself and adds the CORS headers to `/health`,
+`/ai/`, `/vN/` (and locally `/api/`), also on its own 429/502/504 errors, so the browser shows the real status
+instead of "CORS error". Allowed origins: `gateway/cors/allowed-origins.conf` (localhost on any port, plus the
+deployed frontends you add). Every other path (`/motor/*`, `/docs`) stays closed and has no CORS.
+
+**Postgres repair.** The `v2_main_new` branch had lost six migrations (`7635008277b8`, `a3f1c9d27e64`,
+`b7d2e4f10a35`, `c4e8a1f2b903`, `3b560c27ccd3`, `7bcdf5cb3509`): no `ai.critical_alerts`, old consent types, and
+no grants for the Node login, so the NestJS endpoints failed with errors like
+`column mr.source_status does not exist` or `permission denied`. They are restored (granting to `DB_NODE_USER`
+instead of a hard-coded `node_backend`), and `f3a9c2d81b40` repairs a database that was already migrated with the
+broken chain. On any database, from any earlier state: `alembic upgrade head` (the `migrate` container does it).
+Check from the NestJS repo: `npm run test:pg` runs every Node SQL query against the database as the Node login.
+
 ## 15. Environment variables
 
 Never commit real values. Variables marked *proposed* will be confirmed when the code is written.
@@ -1013,6 +1065,8 @@ Never commit real values. Variables marked *proposed* will be confirmed when the
 | `USE_BEDROCK` | motors | `false` (default): the motors answer with their stub rules and nothing calls AWS. `true`: the motors call Amazon Bedrock. **Keep `false` wherever real patient data could flow until the AWS BAA is signed.** |
 | `AWS_REGION` | motors | Bedrock region (default `us-west-2`). The model IDs are US cross-region profiles (`us.`); never `global.` |
 | `MOTOR_TIMEOUT_SECONDS` | orchestrator | Seconds to wait for each motor before treating it as failed (default 2.5) |
+| `DB_NODE_USER`, `DB_NODE_PASSWORD` | Docker postgres, Alembic | The NestJS backend's login. The migrations give exactly this login the grants Node needs (default name `node_backend`). Must be the same value as `DB_NODE_USER` in the NestJS `.env`. |
+| `CORS_ORIGINS` | API (direct calls only) | Comma-separated browser origins for a direct call to uvicorn; empty = any. Behind the gateway nginx answers CORS: `gateway/cors/allowed-origins.conf`. A frontend on `localhost` (any port) is always allowed. |
 | `COST_ALERT_USD_PER_USER` | orchestrator | Projected monthly cost alert threshold, 0.40 (proposed) |
 | `PHI_ENABLED` | all | Stays `false` until the BAA is active (proposed) |
 | `ENVIRONMENT` | all | `local`, `staging` or `production` (proposed) |

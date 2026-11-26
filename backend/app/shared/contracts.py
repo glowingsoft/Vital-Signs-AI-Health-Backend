@@ -1,11 +1,13 @@
 # The data shapes every part of the app agrees on: what goes into a motor, what comes out,
 # and what the app sends to / gets back from the orchestrator.
 
+import re
+from urllib.parse import unquote
 from datetime import datetime
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
 
 # Literal = the value must be one of these strings (like Django "choices").
 RiskLevel = Literal["low", "medium", "high", "critical"]
@@ -30,6 +32,8 @@ class MotorInput(BaseModel):
     timestamp: datetime
     input_type: Literal["text", "image", "vitals"]
     data: dict  # motor-specific content, e.g. {"message": "..."} for triage
+    # Patient's country from the request context (US or MX): which trusted medical sources the motor may cite.
+    country: Optional[str] = None
 
 
 class MotorOutput(BaseModel):
@@ -39,7 +43,12 @@ class MotorOutput(BaseModel):
     disclaimer_id: str
     finding_type: Optional[str] = None  # "= None" makes the field optional, like null=True, blank=True
     evidence_level: Optional[str] = None
-    reference: Optional[str] = None
+    reference: Optional[str] = None  # full citation from the trusted library, attached by the backend
+    # Result of the source check (app/medical_sources/library.check_source). Saved to ai.motor_results.
+    source_id: Optional[str] = None  # ai.medical_sources.id, only when the pick matched an allowed source
+    source_status: Optional[Literal["matched", "pending_medical_review"]] = None  # None = nothing was assessed
+    source_label: Optional[str] = None  # short line for the patient, e.g. "according to CDC guidance"
+    source_link: Optional[str] = None  # the library's verified link
     # Which model answered and what it cost. Saved to ai.motor_results and ai.ai_usage.
     model_name: str = "stub"
     model_version: Optional[str] = None
@@ -88,13 +97,43 @@ class RequestContext(BaseModel):
     os_version: Optional[str] = None
 
 
+S3_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\-/]{0,499}")
+# https://<bucket>.s3.<region>.amazonaws.com/<key> (Node's IB_URL + key), query string ignored.
+BUCKET_URL = re.compile(r"^https://[a-z0-9.-]+\.s3[a-z0-9.-]*\.amazonaws\.com/([^?#]+)(?:[?#].*)?$")
+
+
 class AssessRequest(BaseModel):
     # No user_id here: it always comes from the verified token (see orchestrator/routes.py).
     # Unknown fields are ignored, so a user_id sent in the body has no effect.
     symptoms: Optional[str] = None
-    image: Optional[str] = None  # for now any string (e.g. an image reference); real images come later
+    image: Optional[str] = None  # the photo (base64), only for the analysis: never saved
+    # S3 keys of the files the app uploaded first (Node POST /upload), saved as they are in ai.assessments.input
+    # ("image" / "audio"), so Node can show them later as short-lived private links (GET /assessments).
+    image_key: Optional[str] = None  # the photo sent in "image"
+    audio_key: Optional[str] = None  # the voice recording the symptoms text came from
+    # The voice note in Node (MongoDB "voices" _id) the symptoms came from, when the app has no audio_key:
+    # saved as it is, and Node finds the recording's S3 key through it (GET /assessments).
+    voice_id: Optional[str] = Field(None, pattern=r"^[0-9a-f]{24}$")
     vitals: Optional[Vitals] = None
     context: Optional[RequestContext] = None
+
+    @field_validator("image_key", "audio_key")
+    @classmethod
+    def plain_s3_key(cls, value: Optional[str]) -> Optional[str]:
+        # Only a plain key such as "1764140000000-a1b2c3d4e5f6.jpg" or "uploads/x.m4a":
+        # no URL, no leading "/", no "..", so it can only ever name an object in the app's own bucket.
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        # The app may send the full link it got from Node (IB_URL + key): keep only the key.
+        bucket_url = BUCKET_URL.match(value)
+        if bucket_url:
+            value = unquote(bucket_url.group(1))
+        if not S3_KEY.fullmatch(value) or ".." in value:
+            raise ValueError("must be the S3 key returned by the upload, e.g. 1764140000000-a1b2c3d4e5f6.jpg")
+        return value
 
     @model_validator(mode="after")
     def country_required_with_vitals(self):
